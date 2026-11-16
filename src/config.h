@@ -79,7 +79,8 @@
 // Connector pinout (verified):
 //
 // 1 = 5V (rumble motor only)
-// 2 = DATA  -> GPIO29, with 750 ohm external pull-up to 3.3V
+// 2 = DATA  -> GPIO29 (no external resistor; the driver enables the
+//              RP2350's internal pull-up)
 // 3 = GND
 // 4 = GND
 // 5 = not connected

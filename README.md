@@ -38,7 +38,6 @@ than forking it.
 | Waveshare Core2350B | RP2350B board. Any RP2350B board can work if you change the pins in `src/config.h`. |
 | 1.3" SH1106 OLED, 128×64, I2C | Address `0x3C`. |
 | Controller sockets | Replacement console ports or cut extension cables. |
-| 750 Ω resistor | GameCube data pull-up. |
 
 ### Wiring
 
@@ -84,11 +83,15 @@ both sockets can stay plugged in.
 | Socket pin | Signal | RP2350 |
 |---|---|---|
 | 1 | Rumble motor power | 5V (VBUS) |
-| 2 | Data | GPIO29, plus a 750 Ω pull-up to 3V3 |
+| 2 | Data | GPIO29 |
 | 3 | Ground | GND |
 | 4 | Ground | GND |
 | 5 | — | not connected |
 | 6 | Logic power | 3V3 |
+
+No external pull-up resistor is needed on the data line: the firmware turns on
+the RP2350's internal pull-up. If detection is unreliable with a long cable, a
+pull-up of about 1 kΩ from GPIO29 to 3V3 is the usual fix.
 
 Connect **every** ground on the GameCube socket. Detection did not work until
 all of them were wired: the controller may not join its grounds internally.
