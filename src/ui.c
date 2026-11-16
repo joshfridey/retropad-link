@@ -5,7 +5,7 @@
 #include "joystick_diag.h"
 #include "snes_logo.h"
 #include "nes_logo.h"
-#include "n64-logo.h"
+#include "n64_logo.h"
 #include "gc_cube_logo.h"
 #include "controllers/snes.h"
 
