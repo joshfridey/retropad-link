@@ -1,0 +1,410 @@
+# RetroPad Link target definition
+#
+# Loaded after JoypadOS has finished defining its source lists,
+# helper functions, libraries, and board configuration.
+#
+# RetroPad Link remains external to the JoypadOS source tree.
+
+message(STATUS "RetroPad Link: defining target")
+
+
+# ============================================================================
+# SAFETY
+# ============================================================================
+
+if(TARGET joypad_retropad_link)
+    message(STATUS "RetroPad Link: target already defined")
+    return()
+endif()
+
+
+# ============================================================================
+# TARGET
+# ============================================================================
+
+add_executable(joypad_retropad_link)
+
+
+# ============================================================================
+# COMPILE DEFINITIONS
+# ============================================================================
+#
+# RetroPad Link currently uses the SNES2USB configuration path for the active
+# application behavior.
+#
+# GameCube host on GPIO29 (see RETROPAD_GAMECUBE_DATA_GPIO in config.h).
+#
+
+target_compile_definitions(
+    joypad_retropad_link
+    PRIVATE
+
+    CONFIG_SNES2USB=1
+    CONFIG_USB=1
+    DISABLE_USB_HOST=1
+
+    GC_PIN_DATA=29
+)
+
+
+# ============================================================================
+# SOURCES
+# ============================================================================
+
+target_sources(
+    joypad_retropad_link
+    PUBLIC
+
+    ${CORE_SOURCES}
+    ${USB_DEVICE_SOURCES}
+
+    # Native controller hosts
+    ${SNES_HOST_SOURCES}
+
+    # N64 host
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64/n64_host.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/N64Controller.c
+
+    # GameCube host - RetroPad-local diagnostic gc_host.c
+    ${RETROPAD_LINK_DIR}/src/controllers/gc_debug/gc_host.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_multiboot.c
+    ${RETROPAD_LINK_DIR}/src/controllers/gba_payload_stub.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/joybus_bridge.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/joybus.c
+    ${RETROPAD_LINK_DIR}/src/controllers/gc_debug/GamecubeController.c
+
+    # RetroPad Link
+    ${RETROPAD_LINK_DIR}/src/app.c
+    ${RETROPAD_LINK_DIR}/src/diagnostics.c
+    ${RETROPAD_LINK_DIR}/src/joystick_diag.c
+    ${RETROPAD_LINK_DIR}/src/ui.c
+    ${RETROPAD_LINK_DIR}/src/controller_state.c
+    ${RETROPAD_LINK_DIR}/src/controllers/snes.c
+    ${RETROPAD_LINK_DIR}/src/controllers/nes.c
+    ${RETROPAD_LINK_DIR}/src/controllers/gamecube.c
+    ${RETROPAD_LINK_DIR}/src/controllers/controller_manager.c
+
+    # Display
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
+)
+
+
+# ============================================================================
+# INCLUDE PATHS
+# ============================================================================
+
+target_include_directories(
+    joypad_retropad_link
+    PUBLIC
+
+    # RetroPad Link
+    ${RETROPAD_LINK_DIR}/src
+
+    # JoypadOS root
+    ${CMAKE_CURRENT_SOURCE_DIR}
+
+    # USB device
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+
+    # SNES
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/snes
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/SNESpad/src
+
+    # GameCube / Joybus
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+)
+
+
+# ============================================================================
+# LIBRARIES
+# ============================================================================
+
+target_link_libraries(
+    joypad_retropad_link
+    PRIVATE
+
+    pico_stdlib
+    pico_multicore
+
+    hardware_pio
+    hardware_i2c
+
+    pico_rand
+
+    tinyusb_device
+    tinyusb_board
+)
+
+
+# ============================================================================
+# RETROPAD LINK COMMON TARGET SETUP
+# ============================================================================
+#
+# This mirrors the useful parts of JoypadOS joypad_target_common(), but avoids
+# creating duplicate PIO-header rules in JoypadOS's shared build directory.
+#
+
+target_compile_options(
+    joypad_retropad_link
+    PRIVATE
+
+    -O3
+)
+
+
+# ============================================================================
+# EXTRA OUTPUT FILES
+# ============================================================================
+
+pico_add_extra_outputs(
+    joypad_retropad_link
+)
+
+
+# ============================================================================
+# RETROPAD PIO OUTPUT DIRECTORY
+# ============================================================================
+#
+# All PIO headers owned by the RetroPad Link target are generated into a
+# dedicated directory. This prevents collisions with JoypadOS targets that
+# generate the same headers elsewhere in the build.
+#
+
+set(
+    RETROPAD_PIO_OUTPUT_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/retropad_link_pio"
+)
+
+
+# ============================================================================
+# WS2812 PIO HEADER
+# ============================================================================
+
+pico_generate_pio_header(
+    joypad_retropad_link
+
+    "${CMAKE_SOURCE_DIR}/core/services/leds/neopixel/ws2812.pio"
+
+    OUTPUT_DIR
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)
+
+
+# ============================================================================
+# GAMECUBE JOYBUS PIO HEADER
+# ============================================================================
+#
+# JoypadOS's GameCube host uses joybus-pio. The normal gc2usb target generates
+# joybus.pio.h for this purpose.
+#
+
+pico_generate_pio_header(
+    joypad_retropad_link
+
+    "${CMAKE_SOURCE_DIR}/lib/joybus-pio/src/joybus.pio"
+
+    OUTPUT_DIR
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)
+
+
+# ============================================================================
+# COMMON INCLUDE PATHS
+# ============================================================================
+
+target_include_directories(
+    joypad_retropad_link
+    PUBLIC
+
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/common"
+    "${CMAKE_SOURCE_DIR}/lib/libxsm3"
+
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)
+
+
+# ============================================================================
+# JOYPADOS VERSION / BUILD INFORMATION
+# ============================================================================
+
+target_compile_definitions(
+    joypad_retropad_link
+    PRIVATE
+
+    JOYPAD_VERSION="${JOYPAD_VERSION}"
+    GIT_COMMIT="${GIT_COMMIT}"
+    BUILD_TIME="${BUILD_TIME}"
+    SINPUT_BCD_DEVICE=${JOYPAD_BCD_DEVICE}
+)
+
+
+# ============================================================================
+# BOARD NAME
+# ============================================================================
+
+target_compile_definitions(
+    joypad_retropad_link
+    PRIVATE
+
+    BOARD_NAME="${PICO_BOARD}"
+)
+
+
+message(STATUS "RetroPad Link: target ready")
+
+# ============================================================================
+# RETROPAD LINK STDIO
+# ============================================================================
+# Debug output goes over USB serial. UART stdio stays off: waveshare_core2350b
+# defaults UART TX/RX to GPIO12/13.
+pico_enable_stdio_uart(joypad_retropad_link 0)
+pico_enable_stdio_usb(joypad_retropad_link 1)
+
+
+# ============================================================================
+# RETROPAD STOCK GC2USB ISOLATION TEST
+# ============================================================================
+#
+# Purpose:
+#   Run JoypadOS's stock gc2usb application and stock GC host on RetroPad
+#   hardware using GPIO12.
+#
+# This target intentionally excludes:
+#   - RetroPad controller manager
+#   - SNES host
+#   - RetroPad OLED/UI
+#   - RetroPad diagnostics
+#
+# UART stdio is disabled because waveshare_core2350b normally uses GPIO12
+# for UART TX, which conflicts with the GameCube DATA line.
+#
+
+if(NOT TARGET joypad_retropad_gc_stocktest)
+
+    add_executable(joypad_retropad_gc_stocktest)
+
+    target_compile_definitions(
+        joypad_retropad_gc_stocktest
+        PRIVATE
+
+        CONFIG_GC2USB=1
+        CONFIG_USB=1
+        DISABLE_USB_HOST=1
+        GC_PIN_DATA=12
+        USE_BOOTSEL_BUTTON=1
+
+        ${JOYPAD_GBA_LINK_BRIDGE_DEFS}
+    )
+
+    target_sources(
+        joypad_retropad_gc_stocktest
+        PUBLIC
+
+        ${CORE_SOURCES}
+        ${USB_DEVICE_SOURCES}
+
+        ${CMAKE_CURRENT_LIST_DIR}/src/controllers/gc_pio1_test/gc_host.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_multiboot.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_payload.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/joybus_bridge.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/GamecubeController.c
+
+        ${CMAKE_CURRENT_LIST_DIR}/src/controllers/joybus_debug/joybus.c
+
+        ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb/app.c
+    )
+
+    target_include_directories(
+        joypad_retropad_gc_stocktest
+        PUBLIC
+
+        ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+    )
+
+    target_link_libraries(
+        joypad_retropad_gc_stocktest
+        PRIVATE
+
+        pico_stdlib
+        pico_multicore
+        hardware_pio
+        pico_rand
+        tinyusb_device
+        tinyusb_board
+    )
+
+    # Reproduce the required parts of joypad_target_common() manually so
+    # this diagnostic target can generate its own PIO headers without
+    # colliding with the main RetroPad Link target.
+
+    target_compile_options(
+        joypad_retropad_gc_stocktest
+        PRIVATE
+        -O3
+    )
+
+    pico_add_extra_outputs(
+        joypad_retropad_gc_stocktest
+    )
+
+    target_compile_definitions(
+        joypad_retropad_gc_stocktest
+        PRIVATE
+
+        JOYPAD_VERSION="${JOYPAD_VERSION}"
+        GIT_COMMIT="${GIT_COMMIT}"
+        BUILD_TIME="${BUILD_TIME}"
+        SINPUT_BCD_DEVICE=${JOYPAD_BCD_DEVICE}
+        BOARD_NAME="${PICO_BOARD}"
+    )
+
+    set(
+        RETROPAD_GC_STOCKTEST_PIO_OUTPUT_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/retropad_gc_stocktest_pio"
+    )
+
+    pico_generate_pio_header(
+        joypad_retropad_gc_stocktest
+
+        "${CMAKE_SOURCE_DIR}/core/services/leds/neopixel/ws2812.pio"
+
+        OUTPUT_DIR
+        "${RETROPAD_GC_STOCKTEST_PIO_OUTPUT_DIR}"
+    )
+
+    pico_generate_pio_header(
+        joypad_retropad_gc_stocktest
+
+        "${CMAKE_SOURCE_DIR}/lib/joybus-pio/src/joybus.pio"
+
+        OUTPUT_DIR
+        "${RETROPAD_GC_STOCKTEST_PIO_OUTPUT_DIR}"
+    )
+
+    target_include_directories(
+        joypad_retropad_gc_stocktest
+        PUBLIC
+
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/common"
+        "${CMAKE_SOURCE_DIR}/lib/libxsm3"
+        "${RETROPAD_GC_STOCKTEST_PIO_OUTPUT_DIR}"
+    )
+
+    pico_enable_stdio_uart(
+        joypad_retropad_gc_stocktest
+        0
+    )
+
+    pico_enable_stdio_usb(
+        joypad_retropad_gc_stocktest
+        1
+    )
+
+endif()

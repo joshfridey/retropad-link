@@ -1,0 +1,72 @@
+#ifndef RETROPAD_DIAGNOSTICS_H
+#define RETROPAD_DIAGNOSTICS_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+
+// Which controller's buttons are being tested.
+typedef enum {
+    DIAGNOSTICS_LAYOUT_SNES = 0,    // 12: D-pad, B A Y X, L R, Select Start
+    DIAGNOSTICS_LAYOUT_N64,         // 14: D-pad, A B Z Start, L R, 4x C
+    DIAGNOSTICS_LAYOUT_GAMECUBE,    // 12: D-pad, A B X Y, Z, L R, Start
+} diagnostics_layout_t;
+
+
+// Select the button set to test. Also resets all diagnostic history.
+void diagnostics_set_layout(diagnostics_layout_t layout);
+
+
+// Number of buttons in the active layout.
+uint8_t diagnostics_get_button_count(void);
+
+
+// Reset hint for the active layout, e.g. "RST:ST+SEL+DOWN".
+const char* diagnostics_get_reset_hint(void);
+
+
+// Reset all diagnostic history and detected faults.
+void diagnostics_reset(void);
+
+
+// Process the current controller button state.
+//
+// ignore_mask:
+// Buttons temporarily being used for UI commands can be excluded from
+// diagnostic detection without losing synchronization with their physical
+// state.
+//
+// Returns true when diagnostic state changed.
+bool diagnostics_update(
+    uint32_t buttons,
+    uint32_t ignore_mask
+);
+
+
+// Return current diagnostic totals.
+void diagnostics_get_counts(
+    uint8_t* pass_count,
+    uint8_t* chatter_count,
+    uint8_t* dropout_count
+);
+
+
+// Build the scrolling diagnostic message: faults first, then any buttons
+// that have not been pressed yet.
+//
+// Example:
+//
+//     CHAT:B A | DROP:LEFT | PRESS:L C-UP
+//
+// or:
+//
+//     NO FAULTS DETECTED
+//
+void diagnostics_build_ticker(
+    char* destination,
+    size_t destination_size
+);
+
+
+#endif

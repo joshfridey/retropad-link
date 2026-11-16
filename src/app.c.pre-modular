@@ -1,0 +1,2082 @@
+// app.c - SNES2USB App Entry Point
+// SNES/NES native controller input to USB HID gamepad output adapter
+
+#include "app.h"
+#include "profiles.h"
+
+#include "core/router/router.h"
+#include "core/services/players/manager.h"
+#include "core/services/profiles/profile.h"
+#include "core/services/players/feedback.h"
+
+#include "core/input_interface.h"
+#include "core/output_interface.h"
+#include "core/buttons.h"
+
+#include "usb/usbd/usbd.h"
+#include "native/host/snes/snes_host.h"
+
+#include "core/services/leds/leds.h"
+#include "core/services/display/display.h"
+
+#include "pico/stdlib.h"
+
+#include "snes_logo.h"
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+
+
+// ============================================================================
+// APP INPUT INTERFACES
+// ============================================================================
+
+static const InputInterface* input_interfaces[] = {
+    &snes_input_interface,
+};
+
+const InputInterface** app_get_input_interfaces(uint8_t* count)
+{
+    *count = sizeof(input_interfaces) / sizeof(input_interfaces[0]);
+    return input_interfaces;
+}
+
+
+// ============================================================================
+// APP OUTPUT INTERFACES
+// ============================================================================
+
+static const OutputInterface* output_interfaces[] = {
+    &usbd_output_interface,
+};
+
+const OutputInterface** app_get_output_interfaces(uint8_t* count)
+{
+    *count = sizeof(output_interfaces) / sizeof(output_interfaces[0]);
+    return output_interfaces;
+}
+
+
+// ============================================================================
+// UI STATE
+// ============================================================================
+
+typedef enum {
+    UI_WAITING,
+    UI_CONNECTED,
+    UI_TESTING
+} ui_state_t;
+
+
+// Page order:
+//
+// LIVE -> JOYSTICKS -> DIAGNOSTICS -> RAW
+//
+typedef enum {
+    TEST_PAGE_LIVE = 0,
+    TEST_PAGE_JOYSTICKS,
+    TEST_PAGE_DIAGNOSTICS,
+    TEST_PAGE_RAW,
+    TEST_PAGE_COUNT
+} test_page_t;
+
+
+static ui_state_t ui_state = UI_WAITING;
+static test_page_t test_page = TEST_PAGE_LIVE;
+
+
+// ============================================================================
+// DIAGNOSTICS
+// ============================================================================
+
+typedef struct {
+    uint32_t mask;
+    const char* name;
+
+    bool seen;
+    bool chatter;
+    bool dropout;
+
+    bool last_state;
+
+    uint64_t last_transition_us;
+    uint64_t press_started_us;
+    uint64_t release_started_us;
+
+    uint64_t previous_press_duration_us;
+
+    uint8_t rapid_transition_count;
+} button_diagnostic_t;
+
+
+static button_diagnostic_t button_diagnostics[] = {
+
+    {
+        .mask = JP_BUTTON_DU,
+        .name = "UP"
+    },
+
+    {
+        .mask = JP_BUTTON_DD,
+        .name = "DOWN"
+    },
+
+    {
+        .mask = JP_BUTTON_DL,
+        .name = "LEFT"
+    },
+
+    {
+        .mask = JP_BUTTON_DR,
+        .name = "RIGHT"
+    },
+
+    {
+        .mask = JP_BUTTON_B1,
+        .name = "B"
+    },
+
+    {
+        .mask = JP_BUTTON_B2,
+        .name = "A"
+    },
+
+    {
+        .mask = JP_BUTTON_B3,
+        .name = "Y"
+    },
+
+    {
+        .mask = JP_BUTTON_B4,
+        .name = "X"
+    },
+
+    {
+        .mask = JP_BUTTON_L1,
+        .name = "L"
+    },
+
+    {
+        .mask = JP_BUTTON_R1,
+        .name = "R"
+    },
+
+    {
+        .mask = JP_BUTTON_S1,
+        .name = "SELECT"
+    },
+
+    {
+        .mask = JP_BUTTON_S2,
+        .name = "START"
+    },
+};
+
+
+#define BUTTON_DIAGNOSTIC_COUNT \
+    (sizeof(button_diagnostics) / sizeof(button_diagnostics[0]))
+
+
+// ============================================================================
+// DIAGNOSTIC THRESHOLDS
+// ============================================================================
+
+// Four transitions within 30 ms.
+//
+// This should be much harder to trigger through normal deliberate tapping.
+#define CHATTER_WINDOW_US       30000
+#define CHATTER_TRANSITIONS     4
+
+
+// Button must have been held this long before dropout detection becomes valid.
+#define DROPOUT_MIN_HOLD_US     300000
+
+
+// A release shorter than this after a long hold is considered a dropout.
+#define DROPOUT_RELEASE_US      30000
+
+
+// ============================================================================
+// DIAGNOSTICS UPDATE
+// ============================================================================
+//
+// ignore_mask allows menu navigation buttons to be temporarily excluded.
+//
+// SELECT is intentionally NOT excluded.
+//
+// That allows SELECT to continue being tested for chatter/dropout while also
+// acting as the menu navigation modifier.
+//
+
+static bool diagnostics_update(
+    uint32_t buttons,
+    uint32_t ignore_mask
+)
+{
+    bool changed = false;
+
+    uint64_t now = time_us_64();
+
+
+    for (size_t i = 0; i < BUTTON_DIAGNOSTIC_COUNT; i++) {
+
+        button_diagnostic_t* diag =
+            &button_diagnostics[i];
+
+        bool pressed =
+            (buttons & diag->mask) != 0;
+
+
+        // --------------------------------------------------------------------
+        // IGNORE NAVIGATION INPUT
+        // --------------------------------------------------------------------
+
+        if (ignore_mask & diag->mask) {
+
+            // Keep physical state synchronized while this button is being used
+            // for UI navigation. This prevents navigation presses from being
+            // interpreted as chatter or dropout.
+            diag->last_state = pressed;
+
+            diag->last_transition_us = 0;
+            diag->rapid_transition_count = 0;
+
+            diag->press_started_us = 0;
+            diag->release_started_us = 0;
+            diag->previous_press_duration_us = 0;
+
+            continue;
+        }
+
+
+        // Nothing changed.
+        if (pressed == diag->last_state) {
+            continue;
+        }
+
+
+        // --------------------------------------------------------------------
+        // CHATTER DETECTION
+        // --------------------------------------------------------------------
+
+        if (diag->last_transition_us != 0) {
+
+            uint64_t transition_time =
+                now - diag->last_transition_us;
+
+
+            if (transition_time <= CHATTER_WINDOW_US) {
+
+                if (diag->rapid_transition_count < 255) {
+                    diag->rapid_transition_count++;
+                }
+            }
+
+            else {
+
+                diag->rapid_transition_count = 1;
+            }
+
+
+            if (
+                diag->rapid_transition_count >= CHATTER_TRANSITIONS &&
+                !diag->chatter
+            ) {
+
+                diag->chatter = true;
+                changed = true;
+            }
+        }
+
+        else {
+
+            diag->rapid_transition_count = 1;
+        }
+
+
+        // --------------------------------------------------------------------
+        // BUTTON PRESSED
+        // --------------------------------------------------------------------
+
+        if (pressed) {
+
+            if (!diag->seen) {
+
+                diag->seen = true;
+                changed = true;
+            }
+
+
+            // A short release following a long deliberate hold is suspicious.
+            if (
+                diag->release_started_us != 0 &&
+                diag->previous_press_duration_us >= DROPOUT_MIN_HOLD_US
+            ) {
+
+                uint64_t release_duration =
+                    now - diag->release_started_us;
+
+
+                if (
+                    release_duration <= DROPOUT_RELEASE_US &&
+                    !diag->dropout
+                ) {
+
+                    diag->dropout = true;
+                    changed = true;
+                }
+            }
+
+
+            diag->press_started_us = now;
+            diag->release_started_us = 0;
+        }
+
+
+        // --------------------------------------------------------------------
+        // BUTTON RELEASED
+        // --------------------------------------------------------------------
+
+        else {
+
+            if (diag->press_started_us != 0) {
+
+                diag->previous_press_duration_us =
+                    now - diag->press_started_us;
+            }
+
+
+            diag->press_started_us = 0;
+            diag->release_started_us = now;
+        }
+
+
+        diag->last_state = pressed;
+        diag->last_transition_us = now;
+    }
+
+
+    return changed;
+}
+
+
+// ============================================================================
+// DIAGNOSTICS RESET
+// ============================================================================
+
+static void diagnostics_reset(void)
+{
+    for (size_t i = 0; i < BUTTON_DIAGNOSTIC_COUNT; i++) {
+
+        uint32_t mask =
+            button_diagnostics[i].mask;
+
+        const char* name =
+            button_diagnostics[i].name;
+
+
+        memset(
+            &button_diagnostics[i],
+            0,
+            sizeof(button_diagnostic_t)
+        );
+
+
+        button_diagnostics[i].mask = mask;
+        button_diagnostics[i].name = name;
+    }
+}
+
+
+// ============================================================================
+// PAGE NAVIGATION
+// ============================================================================
+
+static test_page_t page_next(test_page_t page)
+{
+    int next =
+        ((int)page + 1) % TEST_PAGE_COUNT;
+
+    return (test_page_t)next;
+}
+
+
+static test_page_t page_previous(test_page_t page)
+{
+    int previous =
+        (int)page - 1;
+
+    if (previous < 0) {
+        previous = TEST_PAGE_COUNT - 1;
+    }
+
+    return (test_page_t)previous;
+}
+
+
+// ============================================================================
+// PAGE INDICATOR
+// ============================================================================
+//
+// Current page is represented by *
+// Other pages are represented by .
+//
+// LIVE         *...
+// JOYSTICKS    .*..
+// DIAGNOSTICS  ..*.
+// RAW          ...*
+//
+
+static void draw_page_indicator(test_page_t page)
+{
+    const char* indicator = "*...";
+
+
+    switch (page) {
+
+        case TEST_PAGE_LIVE:
+            indicator = "*...";
+            break;
+
+        case TEST_PAGE_JOYSTICKS:
+            indicator = ".*..";
+            break;
+
+        case TEST_PAGE_DIAGNOSTICS:
+            indicator = "..*.";
+            break;
+
+        case TEST_PAGE_RAW:
+            indicator = "...*";
+            break;
+
+        default:
+            indicator = "*...";
+            break;
+    }
+
+
+    // Moved left one full 6-pixel character position.
+    display_text(
+        98,
+        0,
+        indicator
+    );
+}
+
+
+// ============================================================================
+// DIAGNOSTIC TICKER
+// ============================================================================
+
+static void ticker_append(
+    char* destination,
+    size_t destination_size,
+    const char* text
+)
+{
+    size_t used =
+        strlen(destination);
+
+
+    if (used >= destination_size - 1) {
+        return;
+    }
+
+
+    snprintf(
+        destination + used,
+        destination_size - used,
+        "%s",
+        text
+    );
+}
+
+
+static void build_diagnostics_ticker(
+    char* destination,
+    size_t destination_size
+)
+{
+    destination[0] = '\0';
+
+
+    bool have_chatter = false;
+    bool have_dropout = false;
+
+
+    // ------------------------------------------------------------------------
+    // CHATTER BUTTONS
+    // ------------------------------------------------------------------------
+
+    for (size_t i = 0; i < BUTTON_DIAGNOSTIC_COUNT; i++) {
+
+        if (button_diagnostics[i].chatter) {
+
+            if (!have_chatter) {
+
+                ticker_append(
+                    destination,
+                    destination_size,
+                    "CHAT:"
+                );
+
+                have_chatter = true;
+            }
+
+            else {
+
+                ticker_append(
+                    destination,
+                    destination_size,
+                    " "
+                );
+            }
+
+
+            ticker_append(
+                destination,
+                destination_size,
+                button_diagnostics[i].name
+            );
+        }
+    }
+
+
+    // ------------------------------------------------------------------------
+    // DROPOUT BUTTONS
+    // ------------------------------------------------------------------------
+
+    for (size_t i = 0; i < BUTTON_DIAGNOSTIC_COUNT; i++) {
+
+        if (button_diagnostics[i].dropout) {
+
+            if (!have_dropout) {
+
+                if (have_chatter) {
+
+                    ticker_append(
+                        destination,
+                        destination_size,
+                        " | "
+                    );
+                }
+
+
+                ticker_append(
+                    destination,
+                    destination_size,
+                    "DROP:"
+                );
+
+
+                have_dropout = true;
+            }
+
+            else {
+
+                ticker_append(
+                    destination,
+                    destination_size,
+                    " "
+                );
+            }
+
+
+            ticker_append(
+                destination,
+                destination_size,
+                button_diagnostics[i].name
+            );
+        }
+    }
+
+
+    // ------------------------------------------------------------------------
+    // NOTHING DETECTED
+    // ------------------------------------------------------------------------
+
+    if (!have_chatter && !have_dropout) {
+
+        snprintf(
+            destination,
+            destination_size,
+            "NO FAULTS DETECTED"
+        );
+    }
+}
+
+
+// Draw a 21-character scrolling window.
+//
+// 21 characters * 6 pixels = 126 pixels.
+static void draw_diagnostics_ticker(uint16_t offset)
+{
+    char message[160];
+
+    build_diagnostics_ticker(
+        message,
+        sizeof(message)
+    );
+
+
+    size_t length =
+        strlen(message);
+
+
+    char visible[22];
+
+    memset(
+        visible,
+        0,
+        sizeof(visible)
+    );
+
+
+    // Short enough to display normally.
+    if (length <= 21) {
+
+        snprintf(
+            visible,
+            sizeof(visible),
+            "%s",
+            message
+        );
+    }
+
+    else {
+
+        // Add three blank characters between the end and beginning
+        // so wrap-around is visually obvious.
+        size_t cycle_length =
+            length + 3;
+
+
+        for (size_t i = 0; i < 21; i++) {
+
+            size_t index =
+                (offset + i) % cycle_length;
+
+
+            if (index < length) {
+
+                visible[i] =
+                    message[index];
+            }
+
+            else {
+
+                visible[i] = ' ';
+            }
+        }
+
+
+        visible[21] = '\0';
+    }
+
+
+    display_text(
+        1,
+        48,
+        visible
+    );
+}
+
+
+// ============================================================================
+// DISPLAY - WAITING
+// ============================================================================
+
+static void draw_waiting_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        22,
+        20,
+        "NO CONTROLLER"
+    );
+
+
+    display_text(
+        28,
+        44,
+        "CHECK CABLE"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - CONNECTED
+// ============================================================================
+
+static void draw_connected_screen(void)
+{
+    display_clear();
+
+
+    display_bitmap(
+        4,
+        0,
+        super_nintendo_logo,
+        SUPER_NINTENDO_LOGO_W,
+        SUPER_NINTENDO_LOGO_H
+    );
+
+
+    display_text(
+        34,
+        36,
+        "CONNECTED"
+    );
+
+
+    display_text(
+        13,
+        48,
+        "HOLD START+SELECT"
+    );
+
+
+    display_text(
+        7,
+        56,
+        "3 SEC FOR TEST MODE"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - LIVE
+// ============================================================================
+
+static void draw_live_screen(uint32_t buttons)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "SNES CONTROLLER"
+    );
+
+
+    draw_page_indicator(
+        TEST_PAGE_LIVE
+    );
+
+
+    // ------------------------------------------------------------------------
+    // D-PAD
+    // ------------------------------------------------------------------------
+
+    display_text(
+        10,
+        18,
+        (buttons & JP_BUTTON_DU)
+            ? "[U]"
+            : " U "
+    );
+
+
+    display_text(
+        0,
+        28,
+        (buttons & JP_BUTTON_DL)
+            ? "[L]"
+            : " L "
+    );
+
+
+    display_text(
+        20,
+        28,
+        (buttons & JP_BUTTON_DR)
+            ? "[R]"
+            : " R "
+    );
+
+
+    display_text(
+        10,
+        38,
+        (buttons & JP_BUTTON_DD)
+            ? "[D]"
+            : " D "
+    );
+
+
+    // ------------------------------------------------------------------------
+    // FACE BUTTONS
+    // ------------------------------------------------------------------------
+
+    display_text(
+        76,
+        18,
+        (buttons & JP_BUTTON_B4)
+            ? "[X]"
+            : " X "
+    );
+
+
+    display_text(
+        62,
+        28,
+        (buttons & JP_BUTTON_B3)
+            ? "[Y]"
+            : " Y "
+    );
+
+
+    display_text(
+        90,
+        28,
+        (buttons & JP_BUTTON_B2)
+            ? "[A]"
+            : " A "
+    );
+
+
+    display_text(
+        76,
+        38,
+        (buttons & JP_BUTTON_B1)
+            ? "[B]"
+            : " B "
+    );
+
+
+    // ------------------------------------------------------------------------
+    // SYSTEM / SHOULDERS
+    // ------------------------------------------------------------------------
+
+    display_text(
+        0,
+        52,
+        (buttons & JP_BUTTON_S1)
+            ? "[SEL]"
+            : " SEL "
+    );
+
+
+    display_text(
+        36,
+        52,
+        (buttons & JP_BUTTON_S2)
+            ? "[ST]"
+            : " ST "
+    );
+
+
+    display_text(
+        76,
+        52,
+        (buttons & JP_BUTTON_L1)
+            ? "[L]"
+            : " L "
+    );
+
+
+    display_text(
+        100,
+        52,
+        (buttons & JP_BUTTON_R1)
+            ? "[R]"
+            : " R "
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - JOYSTICKS
+// ============================================================================
+
+static void draw_joysticks_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "JOYSTICKS"
+    );
+
+
+    draw_page_indicator(
+        TEST_PAGE_JOYSTICKS
+    );
+
+
+    display_text(
+        22,
+        26,
+        "NOT AVAILABLE"
+    );
+
+
+    display_text(
+        37,
+        40,
+        "FOR SNES"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - DIAGNOSTICS
+// ============================================================================
+
+static void draw_diagnostics_screen(uint16_t ticker_offset)
+{
+    uint8_t pass_count = 0;
+    uint8_t chatter_count = 0;
+    uint8_t dropout_count = 0;
+
+
+    for (size_t i = 0; i < BUTTON_DIAGNOSTIC_COUNT; i++) {
+
+        button_diagnostic_t* diag =
+            &button_diagnostics[i];
+
+
+        if (
+            diag->seen &&
+            !diag->chatter &&
+            !diag->dropout
+        ) {
+
+            pass_count++;
+        }
+
+
+        if (diag->chatter) {
+            chatter_count++;
+        }
+
+
+        if (diag->dropout) {
+            dropout_count++;
+        }
+    }
+
+
+    char line[24];
+
+
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "DIAGNOSTICS"
+    );
+
+
+    draw_page_indicator(
+        TEST_PAGE_DIAGNOSTICS
+    );
+
+
+    // PASS
+
+    snprintf(
+        line,
+        sizeof(line),
+        "PASS: %u/%u",
+        pass_count,
+        (unsigned int)BUTTON_DIAGNOSTIC_COUNT
+    );
+
+
+    display_text(
+        0,
+        12,
+        line
+    );
+
+
+    // CHATTER
+
+    snprintf(
+        line,
+        sizeof(line),
+        "CHATTER: %u",
+        chatter_count
+    );
+
+
+    display_text(
+        0,
+        24,
+        line
+    );
+
+
+    // DROPOUT
+
+    snprintf(
+        line,
+        sizeof(line),
+        "DROPOUT: %u",
+        dropout_count
+    );
+
+
+    display_text(
+        0,
+        36,
+        line
+    );
+
+
+    // Scrolling list of affected buttons.
+
+    draw_diagnostics_ticker(
+        ticker_offset
+    );
+
+
+    // Reset instruction.
+
+    display_text(
+        1,
+        56,
+        "RST:ST+SEL+DOWN"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - RAW
+// ============================================================================
+
+static void draw_raw_screen(uint32_t buttons)
+{
+    char value[24];
+
+
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "RAW INPUT"
+    );
+
+
+    draw_page_indicator(
+        TEST_PAGE_RAW
+    );
+
+
+    display_text(
+        0,
+        18,
+        "BUTTON MASK:"
+    );
+
+
+    snprintf(
+        value,
+        sizeof(value),
+        "0x%08lX",
+        (unsigned long)buttons
+    );
+
+
+    display_text(
+        24,
+        30,
+        value
+    );
+
+
+    int8_t type =
+        snes_host_get_device_type(0);
+
+
+    snprintf(
+        value,
+        sizeof(value),
+        "TYPE: %d",
+        type
+    );
+
+
+    display_text(
+        36,
+        46,
+        value
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DISPLAY - DIAGNOSTICS RESET CONFIRMATION
+// ============================================================================
+
+static void draw_diagnostics_reset_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        28,
+        18,
+        "DIAGNOSTICS"
+    );
+
+
+    display_text(
+        34,
+        34,
+        "CLEARED"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DRAW CURRENT PAGE
+// ============================================================================
+
+static void draw_current_test_page(
+    uint32_t buttons,
+    uint16_t ticker_offset
+)
+{
+    switch (test_page) {
+
+        case TEST_PAGE_LIVE:
+
+            draw_live_screen(
+                buttons
+            );
+
+            break;
+
+
+        case TEST_PAGE_JOYSTICKS:
+
+            draw_joysticks_screen();
+
+            break;
+
+
+        case TEST_PAGE_DIAGNOSTICS:
+
+            draw_diagnostics_screen(
+                ticker_offset
+            );
+
+            break;
+
+
+        case TEST_PAGE_RAW:
+
+            draw_raw_screen(
+                buttons
+            );
+
+            break;
+
+
+        default:
+
+            test_page =
+                TEST_PAGE_LIVE;
+
+            draw_live_screen(
+                buttons
+            );
+
+            break;
+    }
+}
+
+
+// ============================================================================
+// APP INITIALIZATION
+// ============================================================================
+
+void app_init(void)
+{
+    printf(
+        "[app:snes2usb] Initializing SNES2USB v%s\n",
+        JOYPAD_VERSION
+    );
+
+
+    // ------------------------------------------------------------------------
+    // OLED
+    //
+    // GPIO 8 = SDA
+    // GPIO 9 = SCL
+    // ------------------------------------------------------------------------
+
+    display_i2c_config_t oled_cfg = {
+        .i2c_inst = 0,
+        .pin_sda = 8,
+        .pin_scl = 9,
+        .addr = 0x3C,
+    };
+
+
+    display_init_sh1106_i2c(
+        &oled_cfg
+    );
+
+
+    display_set_async(false);
+
+
+    draw_waiting_screen();
+
+
+    // ------------------------------------------------------------------------
+    // SNES HOST
+    // ------------------------------------------------------------------------
+
+    snes_host_init_pins(
+        SNES_PIN_CLOCK,
+        SNES_PIN_LATCH,
+        SNES_PIN_DATA0,
+        SNES_PIN_DATA1,
+        SNES_PIN_IOBIT
+    );
+
+
+    // ------------------------------------------------------------------------
+    // ROUTER
+    // ------------------------------------------------------------------------
+
+    router_config_t router_cfg = {
+
+        .mode =
+            ROUTING_MODE,
+
+        .merge_mode =
+            MERGE_MODE,
+
+        .max_players_per_output = {
+            [OUTPUT_TARGET_USB_DEVICE] =
+                USB_OUTPUT_PORTS,
+        },
+
+        .merge_all_inputs =
+            false,
+
+        .transform_flags =
+            TRANSFORM_NONE,
+
+        .mouse_drain_rate =
+            8,
+    };
+
+
+    router_init(
+        &router_cfg
+    );
+
+
+    router_add_route(
+        INPUT_SOURCE_NATIVE_SNES,
+        OUTPUT_TARGET_USB_DEVICE,
+        0
+    );
+
+
+    // ------------------------------------------------------------------------
+    // PLAYER MANAGEMENT
+    // ------------------------------------------------------------------------
+
+    player_config_t player_cfg = {
+
+        .slot_mode =
+            PLAYER_SLOT_MODE,
+
+        .max_slots =
+            MAX_PLAYER_SLOTS,
+
+        .auto_assign_on_press =
+            AUTO_ASSIGN_ON_PRESS,
+    };
+
+
+    players_init_with_config(
+        &player_cfg
+    );
+
+
+    // ------------------------------------------------------------------------
+    // PROFILE SYSTEM
+    // ------------------------------------------------------------------------
+
+    static const profile_config_t profile_cfg = {
+
+        .output_profiles = {
+            NULL
+        },
+
+        .shared_profiles =
+            &snes2usb_profile_set,
+    };
+
+
+    profile_init(
+        &profile_cfg
+    );
+
+
+    printf(
+        "[app:snes2usb] Initialization complete\n"
+    );
+
+
+    printf(
+        "[app:snes2usb] Routing: SNES/NES -> USB HID Gamepad\n"
+    );
+
+
+    printf(
+        "[app:snes2usb] SNES pins: CLK=%d LATCH=%d D0=%d D1=%d IO=%d\n",
+        SNES_PIN_CLOCK,
+        SNES_PIN_LATCH,
+        SNES_PIN_DATA0,
+        SNES_PIN_DATA1,
+        SNES_PIN_IOBIT
+    );
+}
+
+
+// ============================================================================
+// APP TASK
+// ============================================================================
+
+void app_task(void)
+{
+    static uint64_t test_hold_start = 0;
+    static uint64_t diag_reset_hold_start = 0;
+
+    static uint32_t last_buttons =
+        0xFFFFFFFF;
+
+
+    // Previous D-pad state while SELECT is held.
+    //
+    // SELECT can remain held continuously while each fresh D-pad press
+    // generates one navigation event.
+    static uint32_t last_nav_buttons = 0;
+
+
+    // Diagnostics ticker.
+
+    static uint16_t diag_ticker_offset = 0;
+    static uint64_t diag_ticker_last_us = 0;
+
+
+    bool connected =
+        snes_host_is_connected();
+
+
+    uint32_t buttons =
+        snes_host_get_buttons(0);
+
+
+    bool select_held =
+        (buttons & JP_BUTTON_S1) != 0;
+
+
+    bool start_held =
+        (buttons & JP_BUTTON_S2) != 0;
+
+
+    bool entry_combo =
+        select_held &&
+        start_held;
+
+
+    bool diag_reset_combo =
+        select_held &&
+        start_held &&
+        (buttons & JP_BUTTON_DD);
+
+
+    // ========================================================================
+    // DIAGNOSTICS
+    // ========================================================================
+
+    bool diagnostics_changed = false;
+
+
+    if (connected) {
+
+        uint32_t diagnostic_ignore_mask = 0;
+
+
+        // While SELECT is acting as the navigation modifier, only ignore
+        // the D-pad itself.
+        //
+        // SELECT remains fully monitored by Diagnostics so it can still be
+        // tested for chatter and dropout.
+        if (
+            ui_state == UI_TESTING &&
+            select_held
+        ) {
+
+            diagnostic_ignore_mask =
+                JP_BUTTON_DU |
+                JP_BUTTON_DD |
+                JP_BUTTON_DL |
+                JP_BUTTON_DR;
+        }
+
+
+        // START participates in the diagnostics reset command.
+        //
+        // Ignore START while that command is actively being held so the reset
+        // gesture itself does not contaminate its diagnostics.
+        if (diag_reset_combo) {
+
+            diagnostic_ignore_mask |=
+                JP_BUTTON_S2;
+        }
+
+
+        diagnostics_changed =
+            diagnostics_update(
+                buttons,
+                diagnostic_ignore_mask
+            );
+    }
+
+
+    // ========================================================================
+    // NO CONTROLLER
+    // ========================================================================
+
+    if (!connected) {
+
+        if (ui_state != UI_WAITING) {
+
+            ui_state =
+                UI_WAITING;
+
+
+            test_page =
+                TEST_PAGE_LIVE;
+
+
+            test_hold_start = 0;
+            diag_reset_hold_start = 0;
+
+
+            last_nav_buttons = 0;
+
+
+            last_buttons =
+                0xFFFFFFFF;
+
+
+            diag_ticker_offset = 0;
+            diag_ticker_last_us = 0;
+
+
+            diagnostics_reset();
+
+
+            draw_waiting_screen();
+        }
+    }
+
+
+    // ========================================================================
+    // CONTROLLER CONNECTED
+    // ========================================================================
+
+    else if (ui_state == UI_WAITING) {
+
+        ui_state =
+            UI_CONNECTED;
+
+
+        test_hold_start = 0;
+
+
+        last_nav_buttons = 0;
+
+
+        diagnostics_reset();
+
+
+        draw_connected_screen();
+    }
+
+
+    // ========================================================================
+    // CONNECTED SCREEN
+    // ========================================================================
+
+    else if (ui_state == UI_CONNECTED) {
+
+        // Hold START + SELECT for 3 seconds to enter Test Mode.
+
+        if (entry_combo) {
+
+            if (test_hold_start == 0) {
+
+                test_hold_start =
+                    time_us_64();
+            }
+
+
+            if (
+                (time_us_64() - test_hold_start)
+                >= 3000000
+            ) {
+
+                ui_state =
+                    UI_TESTING;
+
+
+                test_page =
+                    TEST_PAGE_LIVE;
+
+
+                // Start Test Mode with a completely clean diagnostic session.
+                //
+                // This prevents the 3-second START + SELECT entry hold from
+                // counting as part of the controller test.
+                diagnostics_reset();
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                last_nav_buttons = 0;
+
+
+                diag_ticker_offset = 0;
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                test_hold_start = 0;
+
+
+                draw_live_screen(
+                    buttons
+                );
+            }
+        }
+
+        else {
+
+            test_hold_start = 0;
+        }
+    }
+
+
+    // ========================================================================
+    // TEST MODE
+    // ========================================================================
+
+    else if (ui_state == UI_TESTING) {
+
+        uint32_t nav_buttons =
+            buttons &
+            (
+                JP_BUTTON_DU |
+                JP_BUTTON_DD |
+                JP_BUTTON_DL |
+                JP_BUTTON_DR
+            );
+
+
+        // New directional presses only.
+        //
+        // Example:
+        //
+        // Hold SELECT
+        // Tap RIGHT -> event
+        // Keep holding SELECT
+        // Release RIGHT
+        // Tap RIGHT -> another event
+        //
+        uint32_t new_nav_presses =
+            nav_buttons &
+            ~last_nav_buttons;
+
+
+        // --------------------------------------------------------------------
+        // DIAGNOSTICS RESET
+        //
+        // Only works while on Diagnostics.
+        //
+        // START + SELECT + DOWN
+        // Hold for 3 seconds.
+        //
+        // This takes priority over SELECT + DOWN exit.
+        // --------------------------------------------------------------------
+
+        bool diagnostics_reset_in_progress = false;
+
+
+        if (
+            test_page == TEST_PAGE_DIAGNOSTICS &&
+            diag_reset_combo
+        ) {
+
+            diagnostics_reset_in_progress =
+                true;
+
+
+            if (diag_reset_hold_start == 0) {
+
+                diag_reset_hold_start =
+                    time_us_64();
+            }
+
+
+            if (
+                (time_us_64() - diag_reset_hold_start)
+                >= 3000000
+            ) {
+
+                diagnostics_reset();
+
+
+                diag_reset_hold_start = 0;
+
+
+                diag_ticker_offset = 0;
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                draw_diagnostics_reset_screen();
+
+
+                sleep_ms(500);
+
+
+                draw_diagnostics_screen(
+                    diag_ticker_offset
+                );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                last_nav_buttons =
+                    nav_buttons;
+
+
+                return;
+            }
+        }
+
+        else {
+
+            diag_reset_hold_start = 0;
+        }
+
+
+        // --------------------------------------------------------------------
+        // MENU NAVIGATION
+        //
+        // SELECT + RIGHT = next page
+        // SELECT + LEFT  = previous page
+        // SELECT + UP    = jump to LIVE
+        // SELECT + DOWN  = exit Test Mode
+        //
+        // SELECT can remain held continuously.
+        // --------------------------------------------------------------------
+
+        if (
+            select_held &&
+            !diagnostics_reset_in_progress
+        ) {
+
+            // EXIT TEST MODE
+
+            if (
+                new_nav_presses &
+                JP_BUTTON_DD
+            ) {
+
+                ui_state =
+                    UI_CONNECTED;
+
+
+                test_page =
+                    TEST_PAGE_LIVE;
+
+
+                last_nav_buttons = 0;
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset = 0;
+
+
+                draw_connected_screen();
+
+
+                return;
+            }
+
+
+            // JUMP TO LIVE
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DU
+            ) {
+
+                if (
+                    test_page !=
+                    TEST_PAGE_LIVE
+                ) {
+
+                    test_page =
+                        TEST_PAGE_LIVE;
+
+
+                    last_buttons =
+                        0xFFFFFFFF;
+
+
+                    draw_live_screen(
+                        buttons
+                    );
+                }
+            }
+
+
+            // NEXT PAGE
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DR
+            ) {
+
+                test_page =
+                    page_next(
+                        test_page
+                    );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset = 0;
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                draw_current_test_page(
+                    buttons,
+                    diag_ticker_offset
+                );
+            }
+
+
+            // PREVIOUS PAGE
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DL
+            ) {
+
+                test_page =
+                    page_previous(
+                        test_page
+                    );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset = 0;
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                draw_current_test_page(
+                    buttons,
+                    diag_ticker_offset
+                );
+            }
+
+
+            // Remember current D-pad state.
+            //
+            // Releasing a direction while SELECT remains held clears its bit,
+            // allowing the next press to create another navigation event.
+            last_nav_buttons =
+                nav_buttons;
+        }
+
+        else if (!select_held) {
+
+            // SELECT released.
+            //
+            // Reset directional edge tracking for the next navigation session.
+            last_nav_buttons = 0;
+        }
+
+        else {
+
+            // Diagnostics reset combo is being held.
+            //
+            // Keep DOWN synchronized so it does not become an exit event when
+            // the reset completes.
+            last_nav_buttons =
+                nav_buttons;
+        }
+
+
+        // --------------------------------------------------------------------
+        // LIVE PAGE
+        // --------------------------------------------------------------------
+
+        if (
+            test_page ==
+            TEST_PAGE_LIVE
+        ) {
+
+            if (
+                buttons !=
+                last_buttons
+            ) {
+
+                last_buttons =
+                    buttons;
+
+
+                draw_live_screen(
+                    buttons
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------------------
+        // JOYSTICKS PAGE
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_JOYSTICKS
+        ) {
+
+            // Standard SNES controllers have no analog sticks.
+        }
+
+
+        // --------------------------------------------------------------------
+        // DIAGNOSTICS PAGE
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_DIAGNOSTICS
+        ) {
+
+            uint64_t now =
+                time_us_64();
+
+
+            bool ticker_advanced =
+                false;
+
+
+            // Move one character every 250 ms.
+            if (
+                diag_ticker_last_us == 0 ||
+                (now - diag_ticker_last_us)
+                    >= 250000
+            ) {
+
+                diag_ticker_last_us =
+                    now;
+
+
+                diag_ticker_offset++;
+
+
+                ticker_advanced =
+                    true;
+            }
+
+
+            if (
+                diagnostics_changed ||
+                ticker_advanced
+            ) {
+
+                draw_diagnostics_screen(
+                    diag_ticker_offset
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------------------
+        // RAW PAGE
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_RAW
+        ) {
+
+            if (
+                buttons !=
+                last_buttons
+            ) {
+
+                last_buttons =
+                    buttons;
+
+
+                draw_raw_screen(
+                    buttons
+                );
+            }
+        }
+    }
+
+
+    // ========================================================================
+    // USB MODE LED
+    // ========================================================================
+
+    static usb_output_mode_t last_led_mode =
+        USB_OUTPUT_MODE_COUNT;
+
+
+    usb_output_mode_t mode =
+        usbd_get_mode();
+
+
+    if (
+        mode !=
+        last_led_mode
+    ) {
+
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+
+
+        usbd_get_mode_color(
+            mode,
+            &r,
+            &g,
+            &b
+        );
+
+
+        leds_set_color(
+            r,
+            g,
+            b
+        );
+
+
+        last_led_mode =
+            mode;
+    }
+
+
+    // ========================================================================
+    // USB FEEDBACK -> SNES
+    // ========================================================================
+
+    if (
+        usbd_output_interface
+            .get_feedback
+    ) {
+
+        output_feedback_t fb;
+
+
+        if (
+            usbd_output_interface
+                .get_feedback(&fb) &&
+            fb.dirty
+        ) {
+
+            feedback_set_rumble(
+                0,
+                fb.rumble_left,
+                fb.rumble_right
+            );
+        }
+    }
+
+
+    // ========================================================================
+    // APPLY FEEDBACK
+    // ========================================================================
+
+    feedback_state_t* state =
+        feedback_get_state(0);
+
+
+    if (
+        state &&
+        state->rumble_dirty
+    ) {
+
+        snes_host_set_rumble(
+            0,
+            state->rumble.left,
+            state->rumble.right
+        );
+
+
+        feedback_clear_dirty(
+            0
+        );
+    }
+
+
+    display_task();
+}

@@ -1,0 +1,106 @@
+#ifndef RETROPAD_JOYSTICK_DIAG_H
+#define RETROPAD_JOYSTICK_DIAG_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+
+// Angular resolution of the recorded stick outline (gate trace).
+#define JOYSTICK_DIAG_TRACE_BINS 32
+
+
+// Most sticks one controller has (GameCube: main stick + C-stick).
+#define JOYSTICK_DIAG_MAX_STICKS 2
+
+
+// Per-controller stick characteristics.
+//
+// All values are in the controller's native units, so thresholds can be
+// compared directly with figures quoted for that controller (for example,
+// raw N64 stick values).
+typedef struct {
+    const char* name;
+
+    // Largest value the plot needs to show (plot edge).
+    int16_t full_scale;
+
+    // Cardinal reach expected from a healthy stick. Drawn as a dotted guide.
+    int16_t reference_reach;
+
+    // Weakest cardinal reach rated GOOD / FAIR. Anything lower is WORN.
+    int16_t good_reach;
+    int16_t fair_reach;
+
+    // Largest rest offset (either axis) still considered centered.
+    int16_t center_tolerance;
+} joystick_profile_t;
+
+
+// N64: raw stick units. OEM sticks reach roughly 80-85 when healthy.
+extern const joystick_profile_t joystick_profile_n64;
+
+// GameCube: raw units from the plug-in origin. Provisional thresholds.
+extern const joystick_profile_t joystick_profile_gc_main;
+extern const joystick_profile_t joystick_profile_gc_cstick;
+
+
+typedef enum {
+    JOYSTICK_VERDICT_INCOMPLETE = 0,
+    JOYSTICK_VERDICT_GOOD,
+    JOYSTICK_VERDICT_FAIR,
+    JOYSTICK_VERDICT_WORN,
+    JOYSTICK_VERDICT_OFF_CENTER
+} joystick_verdict_t;
+
+
+typedef struct {
+    // Current position. +X = right, +Y = up.
+    int16_t x;
+    int16_t y;
+
+    // Furthest deflection seen in each cardinal direction (magnitudes).
+    int16_t reach_up;
+    int16_t reach_down;
+    int16_t reach_left;
+    int16_t reach_right;
+
+    // Where the stick settles when released.
+    bool rest_valid;
+    int16_t rest_x;
+    int16_t rest_y;
+
+    // Furthest radius seen in each angular slice. Bin 0 points right,
+    // bins advance counter-clockwise.
+    uint8_t trace[JOYSTICK_DIAG_TRACE_BINS];
+} joystick_diag_t;
+
+
+// Clear all history and set the profile for each stick. Pass NULL as
+// second_stick for a single-stick controller.
+void joystick_diag_reset(
+    const joystick_profile_t* main_stick,
+    const joystick_profile_t* second_stick
+);
+
+
+uint8_t joystick_diag_get_stick_count(void);
+
+
+// Feed the current position of one stick (native units, +Y up).
+//
+// Returns true when anything shown on the Joysticks page changed.
+bool joystick_diag_update(
+    uint8_t stick,
+    int16_t x,
+    int16_t y
+);
+
+
+const joystick_diag_t* joystick_diag_get(uint8_t stick);
+
+const joystick_profile_t* joystick_diag_get_profile(uint8_t stick);
+
+joystick_verdict_t joystick_diag_get_verdict(uint8_t stick);
+
+
+#endif

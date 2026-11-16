@@ -1,0 +1,297 @@
+// controller_manager.c
+//
+// RetroPad Link one-controller-at-a-time protocol manager.
+//
+// Behavior:
+//
+//   NONE
+//     -> probe SNES
+//     -> probe N64
+//
+//   SNES detected
+//     -> poll only SNES until disconnected
+//
+//   N64 detected
+//     -> poll only N64 until disconnected
+//
+//   disconnect
+//     -> clear USB output
+//     -> return to NONE
+//
+// GameCube is intentionally excluded for now.
+
+#include "controller_manager.h"
+
+#include "native/host/snes/snes_host.h"
+#include "native/host/n64/n64_host.h"
+
+#include "core/router/router.h"
+
+#include <stdio.h>
+
+static retropad_controller_type_t active_controller =
+    RETROPAD_CONTROLLER_NONE;
+
+
+// ============================================================================
+// STATE
+// ============================================================================
+
+static void
+set_active_controller(retropad_controller_type_t controller)
+{
+    if (controller == active_controller) {
+        return;
+    }
+
+    active_controller = controller;
+
+    switch (controller) {
+
+        case RETROPAD_CONTROLLER_SNES:
+            printf("[retropad] Controller detected: SNES/NES\n");
+            break;
+
+        case RETROPAD_CONTROLLER_N64:
+            printf("[retropad] Controller detected: N64\n");
+            break;
+
+        case RETROPAD_CONTROLLER_GAMECUBE:
+            printf("[retropad] Controller detected: GameCube\n");
+            break;
+
+        case RETROPAD_CONTROLLER_NONE:
+        default:
+            printf("[retropad] Controller disconnected - scanning\n");
+            break;
+    }
+}
+
+
+// ============================================================================
+// INPUT INTERFACE
+// ============================================================================
+
+static void
+manager_init(void)
+{
+    /*
+     * RetroPad Link calls the custom-pin initialization functions from
+     * app_init() before JoypadOS initializes this interface.
+     *
+     * These calls therefore become harmless no-ops when the hosts have
+     * already been initialized with RetroPad Link's configured pins.
+     */
+
+    snes_host_init();
+    n64_host_init();
+
+    active_controller =
+        RETROPAD_CONTROLLER_NONE;
+
+    printf("[retropad] Controller manager initialized\n");
+    printf("[retropad] Scanning for controller\n");
+}
+
+
+static void
+manager_task(void)
+{
+    switch (active_controller) {
+
+        // --------------------------------------------------------------------
+        // NO CONTROLLER
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_NONE:
+
+            /*
+             * Probe SNES first.
+             *
+             * If it connects, lock immediately and do not run another
+             * protocol during this iteration.
+             */
+
+            snes_host_task();
+
+            if (snes_host_is_connected()) {
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_SNES
+                );
+
+                return;
+            }
+
+
+            /*
+             * Nothing on SNES. Try N64.
+             */
+
+            n64_host_task();
+
+            if (n64_host_is_connected()) {
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_N64
+                );
+
+                return;
+            }
+
+            break;
+
+
+        // --------------------------------------------------------------------
+        // SNES / NES
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_SNES:
+
+            snes_host_task();
+
+            if (!snes_host_is_connected()) {
+
+                router_reset_outputs();
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_NONE
+                );
+            }
+
+            break;
+
+
+        // --------------------------------------------------------------------
+        // N64
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_N64:
+
+            n64_host_task();
+
+            if (!n64_host_is_connected()) {
+
+                router_reset_outputs();
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_NONE
+                );
+            }
+
+            break;
+
+
+        // --------------------------------------------------------------------
+        // GAMECUBE
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_GAMECUBE:
+        default:
+
+            router_reset_outputs();
+
+            set_active_controller(
+                RETROPAD_CONTROLLER_NONE
+            );
+
+            break;
+    }
+}
+
+
+static bool
+manager_is_connected(void)
+{
+    return
+        active_controller !=
+        RETROPAD_CONTROLLER_NONE;
+}
+
+
+static uint8_t
+manager_get_device_count(void)
+{
+    return manager_is_connected() ? 1 : 0;
+}
+
+
+/*
+ * The manager is the one permanent JoypadOS input interface.
+ *
+ * ROUTING_MODE_SIMPLE sends submitted controller events to RetroPad Link's
+ * USB output. The individual SNES and N64 hosts continue generating their
+ * normal native input_event_t structures.
+ *
+ * The source field here is therefore only the manager's static interface
+ * identity; it does not determine which physical protocol is currently active.
+ */
+
+static const InputInterface
+retropad_controller_manager_input_interface = {
+
+    .name =
+        "RetroPad Link",
+
+    .source =
+        INPUT_SOURCE_NATIVE_SNES,
+
+    .init =
+        manager_init,
+
+    .task =
+        manager_task,
+
+    .is_connected =
+        manager_is_connected,
+
+    .get_device_count =
+        manager_get_device_count,
+};
+
+
+const InputInterface*
+retropad_controller_manager_get_input_interface(void)
+{
+    return
+        &retropad_controller_manager_input_interface;
+}
+
+
+// ============================================================================
+// PUBLIC STATE
+// ============================================================================
+
+retropad_controller_type_t
+retropad_controller_manager_get_active(void)
+{
+    return active_controller;
+}
+
+
+bool
+retropad_controller_manager_is_connected(void)
+{
+    return manager_is_connected();
+}
+
+
+const char*
+retropad_controller_manager_get_name(void)
+{
+    switch (active_controller) {
+
+        case RETROPAD_CONTROLLER_SNES:
+            return "SNES";
+
+        case RETROPAD_CONTROLLER_N64:
+            return "N64";
+
+        case RETROPAD_CONTROLLER_GAMECUBE:
+            return "GAMECUBE";
+
+        case RETROPAD_CONTROLLER_NONE:
+        default:
+            return "DISCONNECTED";
+    }
+}

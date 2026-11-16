@@ -1,0 +1,74 @@
+// gamecube.c - RetroPad Link GameCube controller adapter
+//
+// Keeps JoypadOS GameCube-host-specific calls out of the main application.
+
+#include "controllers/gamecube.h"
+
+#include "config.h"
+
+#include "native/host/gc/gc_host.h"
+
+
+// ============================================================================
+// INPUT INTERFACE
+// ============================================================================
+
+const InputInterface* retropad_gamecube_get_input_interface(void)
+{
+    return &gc_input_interface;
+}
+
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+void retropad_gamecube_init(void)
+{
+    gc_host_init_pin(
+        RETROPAD_GAMECUBE_DATA_GPIO
+    );
+}
+
+
+// ============================================================================
+// TASK
+// ============================================================================
+
+void retropad_gamecube_task(void)
+{
+    gc_host_task();
+}
+
+
+// ============================================================================
+// CONNECTION STATE
+// ============================================================================
+
+bool retropad_gamecube_is_connected(void)
+{
+    return gc_host_is_connected();
+}
+
+
+// ============================================================================
+// DEVICE TYPE
+// ============================================================================
+
+int16_t retropad_gamecube_get_device_type(void)
+{
+    return gc_host_get_device_type(0);
+}
+
+
+// ============================================================================
+// RUMBLE
+// ============================================================================
+
+void retropad_gamecube_set_rumble(bool enabled)
+{
+    gc_host_set_rumble(
+        0,
+        enabled
+    );
+}

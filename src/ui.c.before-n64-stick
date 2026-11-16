@@ -1,0 +1,769 @@
+// ui.c - RetroPad Link OLED user interface
+
+#include "ui.h"
+#include "diagnostics.h"
+#include "snes_logo.h"
+#include "n64-logo.h"
+#include "controllers/snes.h"
+
+#include "core/buttons.h"
+#include "core/services/display/display.h"
+
+#include <stdio.h>
+#include <string.h>
+
+
+// ============================================================================
+// PAGE INDICATOR
+// ============================================================================
+//
+// Current page is represented by *
+// Other pages are represented by .
+//
+// LIVE         *...
+// JOYSTICKS    .*..
+// DIAGNOSTICS  ..*.
+// RAW          ...*
+//
+
+static void ui_draw_page_indicator(test_page_t page)
+{
+    const char* indicator = "*...";
+
+
+    switch (page) {
+
+        case TEST_PAGE_LIVE:
+            indicator = "*...";
+            break;
+
+        case TEST_PAGE_JOYSTICKS:
+            indicator = ".*..";
+            break;
+
+        case TEST_PAGE_DIAGNOSTICS:
+            indicator = "..*.";
+            break;
+
+        case TEST_PAGE_RAW:
+            indicator = "...*";
+            break;
+
+        default:
+            indicator = "*...";
+            break;
+    }
+
+
+    display_text(
+        98,
+        0,
+        indicator
+    );
+}
+
+
+// ============================================================================
+// DIAGNOSTIC TICKER
+// ============================================================================
+
+static void ui_draw_diagnostics_ticker(uint16_t offset)
+{
+    char message[160];
+
+    diagnostics_build_ticker(
+        message,
+        sizeof(message)
+    );
+
+
+    size_t length =
+        strlen(message);
+
+
+    char visible[22];
+
+    memset(
+        visible,
+        0,
+        sizeof(visible)
+    );
+
+
+    if (length <= 21) {
+
+        snprintf(
+            visible,
+            sizeof(visible),
+            "%s",
+            message
+        );
+    }
+
+    else {
+
+        size_t cycle_length =
+            length + 3;
+
+
+        for (size_t i = 0; i < 21; i++) {
+
+            size_t index =
+                (offset + i) % cycle_length;
+
+
+            if (index < length) {
+
+                visible[i] =
+                    message[index];
+            }
+
+            else {
+
+                visible[i] =
+                    ' ';
+            }
+        }
+
+
+        visible[21] =
+            '\0';
+    }
+
+
+    display_text(
+        1,
+        48,
+        visible
+    );
+}
+
+
+// ============================================================================
+// WAITING
+// ============================================================================
+
+void ui_draw_waiting_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        22,
+        20,
+        "RETROPAD LINK"
+    );
+
+
+    display_text(
+        28,
+        44,
+        "CHECK CABLE"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// CONNECTED
+// ============================================================================
+
+void ui_draw_connected_screen(void)
+{
+    display_clear();
+
+
+    display_bitmap(
+        4,
+        0,
+        super_nintendo_logo,
+        SUPER_NINTENDO_LOGO_W,
+        SUPER_NINTENDO_LOGO_H
+    );
+
+
+    display_text(
+        34,
+        36,
+        "CONNECTED"
+    );
+
+
+    display_text(
+        13,
+        48,
+        "HOLD START+Z"
+    );
+
+
+    display_text(
+        7,
+        56,
+        "3 SEC FOR TEST MODE"
+    );
+
+
+    display_update();
+}
+
+
+void ui_draw_n64_connected_screen(void)
+{
+    display_clear();
+
+    display_bitmap(
+        10,
+        0,
+        n64_logo,
+        N64_LOGO_W,
+        N64_LOGO_H
+    );
+
+    display_text(
+        34,
+        36,
+        "CONNECTED"
+    );
+
+    display_text(
+        13,
+        48,
+        "HOLD START+SELECT"
+    );
+
+    display_text(
+        7,
+        56,
+        "3 SEC FOR TEST MODE"
+    );
+
+    display_update();
+}
+
+
+
+// ============================================================================
+// LIVE
+// ============================================================================
+
+void ui_draw_live_screen(uint32_t buttons)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "SNES CONTROLLER"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_LIVE
+    );
+
+
+    // D-pad
+
+    display_text(
+        10,
+        18,
+        (buttons & JP_BUTTON_DU)
+            ? "[U]"
+            : " U "
+    );
+
+
+    display_text(
+        0,
+        28,
+        (buttons & JP_BUTTON_DL)
+            ? "[L]"
+            : " L "
+    );
+
+
+    display_text(
+        20,
+        28,
+        (buttons & JP_BUTTON_DR)
+            ? "[R]"
+            : " R "
+    );
+
+
+    display_text(
+        10,
+        38,
+        (buttons & JP_BUTTON_DD)
+            ? "[D]"
+            : " D "
+    );
+
+
+    // Face buttons
+
+    display_text(
+        76,
+        18,
+        (buttons & JP_BUTTON_B4)
+            ? "[X]"
+            : " X "
+    );
+
+
+    display_text(
+        62,
+        28,
+        (buttons & JP_BUTTON_B3)
+            ? "[Y]"
+            : " Y "
+    );
+
+
+    display_text(
+        90,
+        28,
+        (buttons & JP_BUTTON_B2)
+            ? "[A]"
+            : " A "
+    );
+
+
+    display_text(
+        76,
+        38,
+        (buttons & JP_BUTTON_B1)
+            ? "[B]"
+            : " B "
+    );
+
+
+    // System / shoulders
+
+    display_text(
+        0,
+        52,
+        (buttons & JP_BUTTON_S1)
+            ? "[SEL]"
+            : " SEL "
+    );
+
+
+    display_text(
+        36,
+        52,
+        (buttons & JP_BUTTON_S2)
+            ? "[ST]"
+            : " ST "
+    );
+
+
+    display_text(
+        76,
+        52,
+        (buttons & JP_BUTTON_L1)
+            ? "[L]"
+            : " L "
+    );
+
+
+    display_text(
+        100,
+        52,
+        (buttons & JP_BUTTON_R1)
+            ? "[R]"
+            : " R "
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// JOYSTICKS
+// ============================================================================
+
+void ui_draw_joysticks_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "JOYSTICKS"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_JOYSTICKS
+    );
+
+
+    display_text(
+        22,
+        26,
+        "NOT AVAILABLE"
+    );
+
+
+    display_text(
+        37,
+        40,
+        "FOR SNES"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DIAGNOSTICS
+// ============================================================================
+
+void ui_draw_diagnostics_screen(uint16_t ticker_offset)
+{
+    uint8_t pass_count = 0;
+    uint8_t chatter_count = 0;
+    uint8_t dropout_count = 0;
+
+
+    diagnostics_get_counts(
+        &pass_count,
+        &chatter_count,
+        &dropout_count
+    );
+
+
+    char line[24];
+
+
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "DIAGNOSTICS"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_DIAGNOSTICS
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "PASS: %u/%u",
+        pass_count,
+        (unsigned int)DIAGNOSTICS_BUTTON_COUNT
+    );
+
+
+    display_text(
+        0,
+        12,
+        line
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "CHATTER: %u",
+        chatter_count
+    );
+
+
+    display_text(
+        0,
+        24,
+        line
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "DROPOUT: %u",
+        dropout_count
+    );
+
+
+    display_text(
+        0,
+        36,
+        line
+    );
+
+
+    ui_draw_diagnostics_ticker(
+        ticker_offset
+    );
+
+
+    display_text(
+        1,
+        56,
+        "RST:ST+SEL+DOWN"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// RAW
+// ============================================================================
+
+void ui_draw_raw_screen(uint32_t buttons)
+{
+    char value[24];
+
+
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "RAW INPUT"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_RAW
+    );
+
+
+    display_text(
+        0,
+        18,
+        "BUTTON MASK:"
+    );
+
+
+    snprintf(
+        value,
+        sizeof(value),
+        "0x%08lX",
+        (unsigned long)buttons
+    );
+
+
+    display_text(
+        24,
+        30,
+        value
+    );
+
+
+    int8_t type =
+        retropad_snes_get_device_type();
+
+
+    snprintf(
+        value,
+        sizeof(value),
+        "TYPE: %d",
+        type
+    );
+
+
+    display_text(
+        36,
+        46,
+        value
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DIAGNOSTICS RESET CONFIRMATION
+// ============================================================================
+
+void ui_draw_diagnostics_reset_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        28,
+        18,
+        "DIAGNOSTICS"
+    );
+
+
+    display_text(
+        34,
+        34,
+        "CLEARED"
+    );
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// DRAW CURRENT PAGE
+// ============================================================================
+
+void ui_draw_current_test_page(
+    test_page_t page,
+    uint32_t buttons,
+    uint16_t ticker_offset
+)
+{
+    switch (page) {
+
+        case TEST_PAGE_LIVE:
+
+            ui_draw_live_screen(
+                buttons
+            );
+
+            break;
+
+
+        case TEST_PAGE_JOYSTICKS:
+
+            ui_draw_joysticks_screen();
+
+            break;
+
+
+        case TEST_PAGE_DIAGNOSTICS:
+
+            ui_draw_diagnostics_screen(
+                ticker_offset
+            );
+
+            break;
+
+
+        case TEST_PAGE_RAW:
+
+            ui_draw_raw_screen(
+                buttons
+            );
+
+            break;
+
+
+        default:
+
+            ui_draw_live_screen(
+                buttons
+            );
+
+            break;
+    }
+}
+
+
+// ============================================================================
+// N64 LIVE BUTTON TEST
+// ============================================================================
+
+void ui_draw_n64_live_screen(uint32_t buttons)
+{
+    char line[24];
+
+
+    display_clear();
+
+
+    display_text(
+        20,
+        0,
+        "N64 BUTTON TEST"
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "A:%d B:%d Z:%d ST:%d",
+        !!(buttons & JP_BUTTON_B1),
+        !!(buttons & JP_BUTTON_B3),
+        !!(buttons & JP_BUTTON_R1),
+        !!(buttons & JP_BUTTON_S2)
+    );
+
+    display_text(
+        0,
+        12,
+        line
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "L:%d R:%d CU:%d CD:%d",
+        !!(buttons & JP_BUTTON_L2),
+        !!(buttons & JP_BUTTON_R2),
+        !!(buttons & JP_BUTTON_L3),
+        !!(buttons & JP_BUTTON_B2)
+    );
+
+    display_text(
+        0,
+        24,
+        line
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "CL:%d CR:%d",
+        !!(buttons & JP_BUTTON_B4),
+        !!(buttons & JP_BUTTON_R3)
+    );
+
+    display_text(
+        0,
+        36,
+        line
+    );
+
+
+    snprintf(
+        line,
+        sizeof(line),
+        "U%d D%d L%d R%d",
+        !!(buttons & JP_BUTTON_DU),
+        !!(buttons & JP_BUTTON_DD),
+        !!(buttons & JP_BUTTON_DL),
+        !!(buttons & JP_BUTTON_DR)
+    );
+
+    display_text(
+        0,
+        48,
+        line
+    );
+
+
+    display_text(
+        0,
+        56,
+        "Z+DOWN: EXIT"
+    );
+
+
+    display_update();
+}

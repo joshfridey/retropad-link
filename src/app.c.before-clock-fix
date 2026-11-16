@@ -1,0 +1,1129 @@
+// app.c - RetroPad Link application entry point
+
+#include "app.h"
+#include "profiles.h"
+#include "diagnostics.h"
+#include "ui.h"
+
+#include "controllers/snes.h"
+#include "controllers/gamecube.h"
+#include "controllers/controller_manager.h"
+
+#include "core/router/router.h"
+#include "core/services/players/manager.h"
+#include "core/services/profiles/profile.h"
+#include "core/services/players/feedback.h"
+
+#include "core/input_interface.h"
+#include "core/output_interface.h"
+#include "core/buttons.h"
+
+#include "usb/usbd/usbd.h"
+
+#include "core/services/leds/leds.h"
+#include "core/services/display/display.h"
+
+#include "pico/stdlib.h"
+#include "hardware/clocks.h"
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+
+// ============================================================================
+// APP INPUT INTERFACES
+// ============================================================================
+//
+// JoypadOS sees ONE input interface:
+//
+//     RetroPad Link Controller Manager
+//
+// The controller manager decides whether SNES or GameCube is actively polled.
+// This prevents expensive GameCube Joybus polling from adding latency while an
+// SNES controller is in use.
+//
+
+const InputInterface** app_get_input_interfaces(uint8_t* count)
+{
+    static const InputInterface* input_interfaces[1];
+
+
+    input_interfaces[0] =
+        retropad_controller_manager_get_input_interface();
+
+
+    *count = 1;
+
+
+    return input_interfaces;
+}
+
+
+// ============================================================================
+// APP OUTPUT INTERFACES
+// ============================================================================
+
+static const OutputInterface* output_interfaces[] = {
+    &usbd_output_interface,
+};
+
+
+const OutputInterface** app_get_output_interfaces(uint8_t* count)
+{
+    *count =
+        sizeof(output_interfaces) /
+        sizeof(output_interfaces[0]);
+
+
+    return output_interfaces;
+}
+
+
+// ============================================================================
+// UI STATE
+// ============================================================================
+
+typedef enum {
+    UI_WAITING,
+    UI_CONNECTED,
+    UI_TESTING
+} ui_state_t;
+
+
+static ui_state_t ui_state =
+    UI_WAITING;
+
+
+static test_page_t test_page =
+    TEST_PAGE_LIVE;
+
+
+// ============================================================================
+// PAGE NAVIGATION
+// ============================================================================
+
+static test_page_t page_next(test_page_t page)
+{
+    int next =
+        ((int)page + 1) %
+        TEST_PAGE_COUNT;
+
+
+    return (test_page_t)next;
+}
+
+
+static test_page_t page_previous(test_page_t page)
+{
+    int previous =
+        (int)page - 1;
+
+
+    if (previous < 0) {
+
+        previous =
+            TEST_PAGE_COUNT - 1;
+    }
+
+
+    return (test_page_t)previous;
+}
+
+
+// ============================================================================
+// APP INITIALIZATION
+// ============================================================================
+
+void app_init(void)
+{
+    set_sys_clock_khz(130000, true);
+    stdio_init_all();
+
+    set_sys_clock_khz(130000, true);
+    stdio_init_all();
+{
+    printf(
+        "[app:retropad-link] Initializing RetroPad Link v%s\n",
+        JOYPAD_VERSION
+    );
+
+
+    // ------------------------------------------------------------------------
+    // OLED
+    // ------------------------------------------------------------------------
+
+    display_i2c_config_t oled_cfg = {
+        .i2c_inst = 0,
+        .pin_sda = 8,
+        .pin_scl = 9,
+        .addr = 0x3C,
+    };
+
+
+    display_init_sh1106_i2c(
+        &oled_cfg
+    );
+
+
+    display_set_async(false);
+
+
+    ui_draw_waiting_screen();
+
+
+    // ------------------------------------------------------------------------
+    // SNES CUSTOM PIN INITIALIZATION
+    // ------------------------------------------------------------------------
+    //
+    // This MUST happen before JoypadOS initializes the controller manager.
+    //
+    // retropad_snes_init() initializes SNES using RetroPad Link's custom pins:
+    //
+    //     Clock = GPIO5
+    //     Latch = GPIO6
+    //     Data0 = GPIO7
+    //     Data1 = GPIO10
+    //     IOBIT = GPIO11
+    //
+    // Later, when the controller manager calls snes_host_init(), JoypadOS sees
+    // that SNES is already initialized and leaves these pins alone.
+    //
+
+    retropad_snes_init();
+
+
+    // ------------------------------------------------------------------------
+    // ROUTER
+    // ------------------------------------------------------------------------
+
+    router_config_t router_cfg = {
+
+        .mode =
+            ROUTING_MODE,
+
+        .merge_mode =
+            MERGE_MODE,
+
+        .max_players_per_output = {
+            [OUTPUT_TARGET_USB_DEVICE] =
+                USB_OUTPUT_PORTS,
+        },
+
+        .merge_all_inputs =
+            false,
+
+        .transform_flags =
+            TRANSFORM_NONE,
+
+        .mouse_drain_rate =
+            8,
+    };
+
+
+    router_init(
+        &router_cfg
+    );
+
+
+    // SNES / NES -> USB
+
+    router_add_route(
+        INPUT_SOURCE_NATIVE_SNES,
+        OUTPUT_TARGET_USB_DEVICE,
+        0
+    );
+
+
+    // GameCube -> USB
+
+    router_add_route(
+        INPUT_SOURCE_NATIVE_GC,
+        OUTPUT_TARGET_USB_DEVICE,
+        0
+    );
+
+
+    // ------------------------------------------------------------------------
+    // PLAYER MANAGEMENT
+    // ------------------------------------------------------------------------
+
+    player_config_t player_cfg = {
+
+        .slot_mode =
+            PLAYER_SLOT_MODE,
+
+        .max_slots =
+            MAX_PLAYER_SLOTS,
+
+        .auto_assign_on_press =
+            AUTO_ASSIGN_ON_PRESS,
+    };
+
+
+    players_init_with_config(
+        &player_cfg
+    );
+
+
+    // ------------------------------------------------------------------------
+    // PROFILE SYSTEM
+    // ------------------------------------------------------------------------
+    //
+    // SNES profile set remains active for now.
+    //
+    // Once the controller manager/UI abstraction is complete, we'll decide
+    // whether RetroPad Link should have its own shared profile set.
+    //
+
+    static const profile_config_t profile_cfg = {
+
+        .output_profiles = {
+            NULL
+        },
+
+        .shared_profiles =
+            &snes2usb_profile_set,
+    };
+
+
+    profile_init(
+        &profile_cfg
+    );
+
+
+    printf(
+        "[app:retropad-link] Initialization complete\n"
+    );
+
+
+    printf(
+        "[app:retropad-link] Controller manager enabled\n"
+    );
+
+
+    printf(
+        "[app:retropad-link] SNES pins: CLK=%d LATCH=%d D0=%d D1=%d IO=%d\n",
+        SNES_PIN_CLOCK,
+        SNES_PIN_LATCH,
+        SNES_PIN_DATA0,
+        SNES_PIN_DATA1,
+        SNES_PIN_IOBIT
+    );
+
+
+    printf(
+        "[app:retropad-link] GameCube data pin: GPIO12\n"
+    );
+}
+
+
+// ============================================================================
+// APP TASK
+// ============================================================================
+
+void app_task(void)
+{
+    static uint64_t test_hold_start =
+        0;
+
+
+    static uint64_t diag_reset_hold_start =
+        0;
+
+
+    static uint32_t last_buttons =
+        0xFFFFFFFF;
+
+
+    // Previous D-pad state while SELECT is held.
+    static uint32_t last_nav_buttons =
+        0;
+
+
+    // Diagnostics ticker.
+    static uint16_t diag_ticker_offset =
+        0;
+
+
+    static uint64_t diag_ticker_last_us =
+        0;
+
+
+    // ========================================================================
+    // ACTIVE CONTROLLER
+    // ========================================================================
+    //
+    // The controller manager determines which protocol is actively being
+    // polled.
+    //
+    // OLED/test-mode behavior is still SNES-specific at this stage.
+    //
+
+    retropad_controller_type_t active_controller =
+        retropad_controller_manager_get_active();
+
+
+    bool snes_active =
+        active_controller ==
+        RETROPAD_CONTROLLER_SNES;
+
+
+    bool connected =
+        snes_active &&
+        retropad_snes_is_connected();
+
+
+    uint32_t buttons =
+        connected
+            ? retropad_snes_get_buttons()
+            : 0;
+
+
+    bool select_held =
+        (buttons & JP_BUTTON_S1) != 0;
+
+
+    bool start_held =
+        (buttons & JP_BUTTON_S2) != 0;
+
+
+    bool entry_combo =
+        select_held &&
+        start_held;
+
+
+    bool diag_reset_combo =
+        select_held &&
+        start_held &&
+        (buttons & JP_BUTTON_DD);
+
+
+    // ========================================================================
+    // DIAGNOSTICS
+    // ========================================================================
+
+    bool diagnostics_changed =
+        false;
+
+
+    if (connected) {
+
+        uint32_t diagnostic_ignore_mask =
+            0;
+
+
+        // SELECT remains monitored.
+        //
+        // Only the D-pad is ignored while SELECT is being used as the
+        // navigation modifier.
+
+        if (
+            ui_state == UI_TESTING &&
+            select_held
+        ) {
+
+            diagnostic_ignore_mask =
+                JP_BUTTON_DU |
+                JP_BUTTON_DD |
+                JP_BUTTON_DL |
+                JP_BUTTON_DR;
+        }
+
+
+        // START participates in the diagnostics-reset command.
+        //
+        // Ignore START during that command so the reset gesture does not
+        // contaminate diagnostics.
+
+        if (diag_reset_combo) {
+
+            diagnostic_ignore_mask |=
+                JP_BUTTON_S2;
+        }
+
+
+        diagnostics_changed =
+            diagnostics_update(
+                buttons,
+                diagnostic_ignore_mask
+            );
+    }
+
+
+    // ========================================================================
+    // NO SNES CONTROLLER
+    // ========================================================================
+    //
+    // GameCube may still be working perfectly over USB here.
+    //
+    // We intentionally leave the OLED in the waiting state until GameCube UI
+    // support is added in the next stage.
+    //
+
+    if (!connected) {
+
+        if (active_controller == RETROPAD_CONTROLLER_GAMECUBE) {
+
+            display_clear();
+
+            display_text(
+                20,
+                20,
+                "GAMECUBE ACTIVE"
+            );
+
+            display_update();
+        }
+
+        else if (active_controller == RETROPAD_CONTROLLER_NONE) {
+
+            display_clear();
+
+            display_text(
+                18,
+                20,
+                "NO ACTIVE CTRL"
+            );
+
+            display_update();
+        }
+
+        if (ui_state != UI_WAITING) {
+
+            ui_state =
+                UI_WAITING;
+
+
+            test_page =
+                TEST_PAGE_LIVE;
+
+
+            test_hold_start =
+                0;
+
+
+            diag_reset_hold_start =
+                0;
+
+
+            last_nav_buttons =
+                0;
+
+
+            last_buttons =
+                0xFFFFFFFF;
+
+
+            diag_ticker_offset =
+                0;
+
+
+            diag_ticker_last_us =
+                0;
+
+
+            diagnostics_reset();
+
+
+            ui_draw_waiting_screen();
+        }
+    }
+
+
+    // ========================================================================
+    // SNES CONNECTED
+    // ========================================================================
+
+    else if (ui_state == UI_WAITING) {
+
+        ui_state =
+            UI_CONNECTED;
+
+
+        test_hold_start =
+            0;
+
+
+        last_nav_buttons =
+            0;
+
+
+        diagnostics_reset();
+
+
+        ui_draw_connected_screen();
+    }
+
+
+    // ========================================================================
+    // CONNECTED SCREEN
+    // ========================================================================
+
+    else if (ui_state == UI_CONNECTED) {
+
+        // Hold START + SELECT for 3 seconds to enter Test Mode.
+
+        if (entry_combo) {
+
+            if (test_hold_start == 0) {
+
+                test_hold_start =
+                    time_us_64();
+            }
+
+
+            if (
+                (time_us_64() - test_hold_start)
+                >= 3000000
+            ) {
+
+                ui_state =
+                    UI_TESTING;
+
+
+                test_page =
+                    TEST_PAGE_LIVE;
+
+
+                // Entry combo must not contaminate diagnostics.
+
+                diagnostics_reset();
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                last_nav_buttons =
+                    0;
+
+
+                diag_ticker_offset =
+                    0;
+
+
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                test_hold_start =
+                    0;
+
+
+                ui_draw_live_screen(
+                    buttons
+                );
+            }
+        }
+
+        else {
+
+            test_hold_start =
+                0;
+        }
+    }
+
+
+    // ========================================================================
+    // TEST MODE
+    // ========================================================================
+
+    else if (ui_state == UI_TESTING) {
+
+        uint32_t nav_buttons =
+            buttons &
+            (
+                JP_BUTTON_DU |
+                JP_BUTTON_DD |
+                JP_BUTTON_DL |
+                JP_BUTTON_DR
+            );
+
+
+        uint32_t new_nav_presses =
+            nav_buttons &
+            ~last_nav_buttons;
+
+
+        // --------------------------------------------------------------------
+        // DIAGNOSTICS RESET
+        //
+        // START + SELECT + DOWN
+        // Hold for three seconds while on Diagnostics.
+        // --------------------------------------------------------------------
+
+        bool diagnostics_reset_in_progress =
+            false;
+
+
+        if (
+            test_page == TEST_PAGE_DIAGNOSTICS &&
+            diag_reset_combo
+        ) {
+
+            diagnostics_reset_in_progress =
+                true;
+
+
+            if (diag_reset_hold_start == 0) {
+
+                diag_reset_hold_start =
+                    time_us_64();
+            }
+
+
+            if (
+                (time_us_64() - diag_reset_hold_start)
+                >= 3000000
+            ) {
+
+                diagnostics_reset();
+
+
+                diag_reset_hold_start =
+                    0;
+
+
+                diag_ticker_offset =
+                    0;
+
+
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                ui_draw_diagnostics_reset_screen();
+
+
+                sleep_ms(500);
+
+
+                ui_draw_diagnostics_screen(
+                    diag_ticker_offset
+                );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                last_nav_buttons =
+                    nav_buttons;
+
+
+                return;
+            }
+        }
+
+        else {
+
+            diag_reset_hold_start =
+                0;
+        }
+
+
+        // --------------------------------------------------------------------
+        // MENU NAVIGATION
+        //
+        // SELECT + RIGHT = next
+        // SELECT + LEFT  = previous
+        // SELECT + UP    = LIVE
+        // SELECT + DOWN  = exit
+        // --------------------------------------------------------------------
+
+        if (
+            select_held &&
+            !diagnostics_reset_in_progress
+        ) {
+
+            // EXIT
+
+            if (
+                new_nav_presses &
+                JP_BUTTON_DD
+            ) {
+
+                ui_state =
+                    UI_CONNECTED;
+
+
+                test_page =
+                    TEST_PAGE_LIVE;
+
+
+                last_nav_buttons =
+                    0;
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset =
+                    0;
+
+
+                ui_draw_connected_screen();
+
+
+                return;
+            }
+
+
+            // LIVE
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DU
+            ) {
+
+                if (
+                    test_page !=
+                    TEST_PAGE_LIVE
+                ) {
+
+                    test_page =
+                        TEST_PAGE_LIVE;
+
+
+                    last_buttons =
+                        0xFFFFFFFF;
+
+
+                    ui_draw_live_screen(
+                        buttons
+                    );
+                }
+            }
+
+
+            // NEXT
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DR
+            ) {
+
+                test_page =
+                    page_next(
+                        test_page
+                    );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset =
+                    0;
+
+
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                ui_draw_current_test_page(
+                    test_page,
+                    buttons,
+                    diag_ticker_offset
+                );
+            }
+
+
+            // PREVIOUS
+
+            else if (
+                new_nav_presses &
+                JP_BUTTON_DL
+            ) {
+
+                test_page =
+                    page_previous(
+                        test_page
+                    );
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                diag_ticker_offset =
+                    0;
+
+
+                diag_ticker_last_us =
+                    time_us_64();
+
+
+                ui_draw_current_test_page(
+                    test_page,
+                    buttons,
+                    diag_ticker_offset
+                );
+            }
+
+
+            last_nav_buttons =
+                nav_buttons;
+        }
+
+        else if (!select_held) {
+
+            last_nav_buttons =
+                0;
+        }
+
+        else {
+
+            last_nav_buttons =
+                nav_buttons;
+        }
+
+
+        // --------------------------------------------------------------------
+        // LIVE
+        // --------------------------------------------------------------------
+
+        if (
+            test_page ==
+            TEST_PAGE_LIVE
+        ) {
+
+            if (
+                buttons !=
+                last_buttons
+            ) {
+
+                last_buttons =
+                    buttons;
+
+
+                ui_draw_live_screen(
+                    buttons
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------------------
+        // JOYSTICKS
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_JOYSTICKS
+        ) {
+
+            // Standard SNES controllers do not provide analog sticks.
+            //
+            // This page will become active for GameCube once the GameCube
+            // diagnostics/UI state accessor is implemented.
+        }
+
+
+        // --------------------------------------------------------------------
+        // DIAGNOSTICS
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_DIAGNOSTICS
+        ) {
+
+            uint64_t now =
+                time_us_64();
+
+
+            bool ticker_advanced =
+                false;
+
+
+            if (
+                diag_ticker_last_us == 0 ||
+                (now - diag_ticker_last_us)
+                    >= 250000
+            ) {
+
+                diag_ticker_last_us =
+                    now;
+
+
+                diag_ticker_offset++;
+
+
+                ticker_advanced =
+                    true;
+            }
+
+
+            if (
+                diagnostics_changed ||
+                ticker_advanced
+            ) {
+
+                ui_draw_diagnostics_screen(
+                    diag_ticker_offset
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------------------
+        // RAW
+        // --------------------------------------------------------------------
+
+        else if (
+            test_page ==
+            TEST_PAGE_RAW
+        ) {
+
+            if (
+                buttons !=
+                last_buttons
+            ) {
+
+                last_buttons =
+                    buttons;
+
+
+                ui_draw_raw_screen(
+                    buttons
+                );
+            }
+        }
+    }
+
+
+    // ========================================================================
+    // USB MODE LED
+    // ========================================================================
+
+    static usb_output_mode_t last_led_mode =
+        USB_OUTPUT_MODE_COUNT;
+
+
+    usb_output_mode_t mode =
+        usbd_get_mode();
+
+
+    if (
+        mode !=
+        last_led_mode
+    ) {
+
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+
+
+        usbd_get_mode_color(
+            mode,
+            &r,
+            &g,
+            &b
+        );
+
+
+        leds_set_color(
+            r,
+            g,
+            b
+        );
+
+
+        last_led_mode =
+            mode;
+    }
+
+
+    // ========================================================================
+    // USB FEEDBACK
+    // ========================================================================
+
+    if (
+        usbd_output_interface
+            .get_feedback
+    ) {
+
+        output_feedback_t fb;
+
+
+        if (
+            usbd_output_interface
+                .get_feedback(&fb) &&
+            fb.dirty
+        ) {
+
+            feedback_set_rumble(
+                0,
+                fb.rumble_left,
+                fb.rumble_right
+            );
+        }
+    }
+
+
+    // ========================================================================
+    // APPLY CONTROLLER FEEDBACK
+    // ========================================================================
+
+    feedback_state_t* state =
+        feedback_get_state(0);
+
+
+    if (
+        state &&
+        state->rumble_dirty
+    ) {
+
+        switch (active_controller) {
+
+            // ----------------------------------------------------------------
+            // SNES
+            // ----------------------------------------------------------------
+
+            case RETROPAD_CONTROLLER_SNES:
+
+                retropad_snes_set_rumble(
+                    state->rumble.left,
+                    state->rumble.right
+                );
+
+                break;
+
+
+            // ----------------------------------------------------------------
+            // GAMECUBE
+            // ----------------------------------------------------------------
+
+            case RETROPAD_CONTROLLER_GAMECUBE:
+
+                retropad_gamecube_set_rumble(
+                    state->rumble.left > 0 ||
+                    state->rumble.right > 0
+                );
+
+                break;
+
+
+            // ----------------------------------------------------------------
+            // NONE
+            // ----------------------------------------------------------------
+
+            case RETROPAD_CONTROLLER_NONE:
+
+            default:
+
+                break;
+        }
+
+
+        feedback_clear_dirty(
+            0
+        );
+    }
+
+
+    display_task();
+}

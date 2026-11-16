@@ -1,0 +1,34 @@
+#ifndef RETROPAD_UI_H
+#define RETROPAD_UI_H
+
+#include <stdint.h>
+
+// Page order:
+//
+// LIVE -> JOYSTICKS -> DIAGNOSTICS -> RAW
+//
+typedef enum {
+    TEST_PAGE_LIVE = 0,
+    TEST_PAGE_JOYSTICKS,
+    TEST_PAGE_DIAGNOSTICS,
+    TEST_PAGE_RAW,
+    TEST_PAGE_COUNT
+} test_page_t;
+
+void ui_draw_waiting_screen(void);
+void ui_draw_connected_screen(void);
+void ui_draw_n64_connected_screen(void);
+void ui_draw_n64_live_screen(uint32_t buttons);
+void ui_draw_live_screen(uint32_t buttons);
+void ui_draw_joysticks_screen(void);
+void ui_draw_diagnostics_screen(uint16_t ticker_offset);
+void ui_draw_raw_screen(uint32_t buttons);
+void ui_draw_diagnostics_reset_screen(void);
+
+void ui_draw_current_test_page(
+    test_page_t page,
+    uint32_t buttons,
+    uint16_t ticker_offset
+);
+
+#endif
