@@ -39,23 +39,6 @@
 #include <stdbool.h>
 
 
-// Temporary GameCube Joybus diagnostics.
-// Implemented by RetroPad Link's private gc_debug/gc_host.c.
-uint32_t retropad_gc_debug_get_poll_attempts(void);
-uint32_t retropad_gc_debug_get_poll_successes(void);
-
-uint32_t retropad_gc_debug_get_probe_attempts(void);
-uint32_t retropad_gc_debug_get_origin_attempts(void);
-uint32_t retropad_gc_debug_get_actual_poll_attempts(void);
-uint32_t retropad_gc_debug_get_last_probe_len(void);
-uint32_t retropad_gc_debug_get_last_origin_len(void);
-uint32_t retropad_gc_debug_get_last_poll_len(void);
-uint16_t retropad_gc_debug_get_last_device_id(void);
-uint32_t retropad_gc_debug_get_last_probe_edges(void);
-uint32_t retropad_gc_debug_get_idle_level(void);
-uint32_t retropad_gc_debug_get_variant_replies(uint8_t variant);
-
-
 // ============================================================================
 // APP INPUT INTERFACES
 // ============================================================================
@@ -740,18 +723,6 @@ void app_task(void)
         false;
 
 
-#if RETROPAD_GC_DEBUG_OVERLAY
-
-    // GameCube handshake status line on the waiting screen.
-    static uint64_t gc_status_last_us =
-        0;
-
-    static char gc_status_shown[48] =
-        "";
-
-#endif
-
-
     // ========================================================================
     // ACTIVE CONTROLLER
     // ========================================================================
@@ -1008,108 +979,7 @@ void app_task(void)
             // Draw once on disconnect. app_init() draws the initial one.
 
             ui_draw_waiting_screen();
-
-#if RETROPAD_GC_DEBUG_OVERLAY
-            // Force the status line to be redrawn on the fresh screen.
-            gc_status_shown[0] =
-                '\0';
-#endif
         }
-
-
-#if RETROPAD_GC_DEBUG_OVERLAY
-
-        // GameCube handshake status, refreshed twice a second:
-        //
-        //   #     = probe attempts (proves probing is running)
-        //   L     = data line level just before the probe (1 = idle high)
-        //   E     = falling edges during the last probe:
-        //             0 = nothing driven onto the pin
-        //            ~9 = probe sent, controller silent
-        //           ~34 = probe sent, controller replied
-        //   P     = bytes in the last probe reply   (3 = answered)
-        //   O     = bytes in the last origin reply  (10 = handshake complete)
-        //   ID    = device ID from the probe reply  (09xx = GameCube)
-
-        uint64_t now =
-            time_us_64();
-
-
-        if ((now - gc_status_last_us) >= 500000) {
-
-            gc_status_last_us =
-                now;
-
-
-            char gc_line1[24];
-            char gc_line2[24];
-
-            // R = replies per probe variant (capped at 9):
-            //   0x00@4us  0xFF@4us  0x00@5us  0xFF@5us
-
-            unsigned int replies[4];
-
-            for (uint8_t v = 0; v < 4; v++) {
-
-                uint32_t r =
-                    retropad_gc_debug_get_variant_replies(v);
-
-                replies[v] =
-                    r > 9 ? 9 : (unsigned int)r;
-            }
-
-
-            snprintf(
-                gc_line1,
-                sizeof(gc_line1),
-                "GC#%lu L%lu E%lu R%u%u%u%u",
-                (unsigned long)(retropad_gc_debug_get_probe_attempts() % 1000),
-                (unsigned long)retropad_gc_debug_get_idle_level(),
-                (unsigned long)retropad_gc_debug_get_last_probe_edges(),
-                replies[0],
-                replies[1],
-                replies[2],
-                replies[3]
-            );
-
-            snprintf(
-                gc_line2,
-                sizeof(gc_line2),
-                "P%lu O%lu ID%04X",
-                (unsigned long)retropad_gc_debug_get_last_probe_len(),
-                (unsigned long)retropad_gc_debug_get_last_origin_len(),
-                (unsigned int)retropad_gc_debug_get_last_device_id()
-            );
-
-
-            char gc_status[48];
-
-            snprintf(
-                gc_status,
-                sizeof(gc_status),
-                "%s|%s",
-                gc_line1,
-                gc_line2
-            );
-
-
-            if (strcmp(gc_status, gc_status_shown) != 0) {
-
-                snprintf(
-                    gc_status_shown,
-                    sizeof(gc_status_shown),
-                    "%s",
-                    gc_status
-                );
-
-                ui_draw_waiting_screen_status(
-                    gc_line1,
-                    gc_line2
-                );
-            }
-        }
-
-#endif
     }
 
 

@@ -27,9 +27,6 @@
 static GamecubeController gc_controllers[GC_MAX_PORTS];
 static bool initialized = false;
 
-// RetroPad Link temporary GameCube diagnostics
-static uint32_t retropad_gc_poll_attempts = 0;
-static uint32_t retropad_gc_poll_successes = 0;
 static bool rumble_state[GC_MAX_PORTS] = {false};
 static uint8_t disconnect_debounce[GC_MAX_PORTS] = {0};  // Debounce brief disconnects
 static bool was_connected[GC_MAX_PORTS] = {false};  // Track connection state
@@ -364,7 +361,6 @@ void gc_host_task(void)
         // Poll the controller (rumble state passed in poll command)
         gc_report_t report;
 
-        retropad_gc_poll_attempts++;
 
         bool success = GamecubeController_Poll(
             controller,
@@ -373,7 +369,6 @@ void gc_host_task(void)
         );
 
         if (success) {
-            retropad_gc_poll_successes++;
         }
 
         // GBA-as-controller bridge: a cartless GBA boots into the BIOS
@@ -663,21 +658,11 @@ void gc_host_gba_release_from_bridge(void)
 
 
 // ============================================================================
-// RETROPAD LINK TEMPORARY DEBUG API
+// RETROPAD LINK API
 // ============================================================================
 
 // Copy the last unscaled stick values into out[4].
 void retropad_gc_get_raw_sticks(uint8_t out[4])
 {
     memcpy(out, raw_sticks, 4);
-}
-
-uint32_t retropad_gc_debug_get_poll_attempts(void)
-{
-    return retropad_gc_poll_attempts;
-}
-
-uint32_t retropad_gc_debug_get_poll_successes(void)
-{
-    return retropad_gc_poll_successes;
 }

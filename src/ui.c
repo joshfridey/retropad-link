@@ -191,57 +191,21 @@ static void ui_draw_diagnostics_ticker(uint16_t offset)
 
 void ui_draw_waiting_screen(void)
 {
-    ui_draw_waiting_screen_status(NULL, NULL);
-}
-
-
-void ui_draw_waiting_screen_status(
-    const char* status_line1,
-    const char* status_line2
-)
-{
-    bool has_status =
-        status_line1 != NULL ||
-        status_line2 != NULL;
-
-
     display_clear();
 
 
-    // Shift the title up to make room for the debug lines.
-
     display_text(
         22,
-        has_status ? 4 : 20,
+        20,
         "RETROPAD LINK"
     );
 
 
     display_text(
         28,
-        has_status ? 20 : 44,
+        44,
         "CHECK CABLE"
     );
-
-
-    if (status_line1) {
-
-        display_text(
-            0,
-            44,
-            status_line1
-        );
-    }
-
-
-    if (status_line2) {
-
-        display_text(
-            0,
-            55,
-            status_line2
-        );
-    }
 
 
     display_update();

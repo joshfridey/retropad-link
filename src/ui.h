@@ -32,12 +32,6 @@ void ui_set_optional_pages(
 bool ui_page_available(test_page_t page);
 
 void ui_draw_waiting_screen(void);
-
-// Waiting screen with up to two debug lines at the bottom (NULL = none).
-void ui_draw_waiting_screen_status(
-    const char* status_line1,
-    const char* status_line2
-);
 void ui_draw_connected_screen(void);
 void ui_draw_n64_connected_screen(void);
 void ui_draw_nes_connected_screen(void);

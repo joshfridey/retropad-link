@@ -124,10 +124,6 @@
 // DEBUGGING
 // ============================================================================
 
-// Show the GameCube handshake result on the waiting screen.
-// Set to 0 once GameCube detection is confirmed working.
-#define RETROPAD_GC_DEBUG_OVERLAY      1
-
 #define RETROPAD_UART_DEBUG            1
 
 
