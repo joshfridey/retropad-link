@@ -93,7 +93,7 @@ static const button_definition_t n64_buttons[] = {
 };
 
 
-// Mapping from controllers/gc_debug/gc_host.c map_gc_to_jp().
+// Mapping from controllers/gc/gc_host.c map_gc_to_jp().
 // L / R are the digital clicks at the end of the trigger travel.
 static const button_definition_t gamecube_buttons[] = {
     { JP_BUTTON_DU, "UP" },

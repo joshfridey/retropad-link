@@ -65,13 +65,13 @@ target_sources(
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64/n64_host.c
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/N64Controller.c
 
-    # GameCube host - RetroPad-local diagnostic gc_host.c
-    ${RETROPAD_LINK_DIR}/src/controllers/gc_debug/gc_host.c
+    # GameCube host - RetroPad-local copy of the JoypadOS driver
+    ${RETROPAD_LINK_DIR}/src/controllers/gc/gc_host.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_multiboot.c
     ${RETROPAD_LINK_DIR}/src/controllers/gba_payload_stub.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/joybus_bridge.c
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/joybus.c
-    ${RETROPAD_LINK_DIR}/src/controllers/gc_debug/GamecubeController.c
+    ${RETROPAD_LINK_DIR}/src/controllers/gc/GamecubeController.c
 
     # RetroPad Link
     ${RETROPAD_LINK_DIR}/src/app.c

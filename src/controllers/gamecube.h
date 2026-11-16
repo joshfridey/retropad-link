@@ -9,7 +9,7 @@
 // GAMECUBE CONTROLLER INTERFACE
 // ============================================================================
 
-// Router device address for GameCube input events (set by gc_debug/gc_host.c).
+// Router device address for GameCube input events (set by gc/gc_host.c).
 #define RETROPAD_GAMECUBE_DEV_ADDR  0xD0
 
 

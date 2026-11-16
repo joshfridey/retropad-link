@@ -9,7 +9,7 @@
 #include "native/host/gc/gc_host.h"
 
 
-// Provided by the RetroPad-local GameCube driver (controllers/gc_debug).
+// Provided by the RetroPad-local GameCube driver (controllers/gc).
 bool retropad_gc_get_origin_sticks(uint8_t out[4]);
 void retropad_gc_get_raw_sticks(uint8_t out[4]);
 
