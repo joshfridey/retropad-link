@@ -2,6 +2,11 @@
 //
 // Polls native GameCube controllers via the joybus-pio library and submits
 // input events to the router.
+//
+// Modified copy of JoypadOS src/native/host/gc/gc_host.c (Apache License 2.0,
+// https://github.com/joypad-ai/joypad-os). RetroPad Link changes: joybus on
+// PIO1 instead of PIO0, and the raw stick values are kept for the joystick
+// test (retropad_gc_get_raw_sticks).
 
 #include "gc_host.h"
 #include "GamecubeController.h"

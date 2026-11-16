@@ -6,6 +6,12 @@
  *
  * Based on joybus-pio library by:
  * https://github.com/JonnyHaystack/joybus-pio
+ *
+ * Licensed under the GNU Lesser General Public License v3.0, like joybus-pio.
+ * Modified copy of JoypadOS's lib/joybus-pio/src/GamecubeController.c. RetroPad
+ * Link changes: the handshake rotates through probe/reset commands at 4 us and
+ * 5 us per bit until one gets a reply, and the plug-in origin is kept for the
+ * joystick test (retropad_gc_get_origin_sticks).
  */
 
 #include "GamecubeController.h"

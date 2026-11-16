@@ -1,0 +1,16 @@
+RetroPad Link
+Copyright 2026 joshfridey
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), except where a
+file says otherwise.
+
+This project builds on JoypadOS (https://github.com/joypad-ai/joypad-os),
+Copyright 2024 Robert Dale Smith, licensed under the Apache License 2.0.
+src/controllers/gc/gc_host.c and patches/joypad-os.patch modify JoypadOS code.
+
+src/controllers/gc/GamecubeController.c is derived from joybus-pio
+(https://github.com/JonnyHaystack/joybus-pio) and is licensed under the GNU
+Lesser General Public License v3.0, not the Apache License.
+
+Firmware builds (.uf2) also contain third-party code, including code under the
+GNU GPL v3.0. See THIRD_PARTY_NOTICES.md.
