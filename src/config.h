@@ -8,8 +8,8 @@
 //   Waveshare Core2350B / RP2350B
 //
 // Current controller ports:
-//   SNES
 //   NES
+//   SNES
 //   N64
 //   GameCube
 //
@@ -18,6 +18,28 @@
 
 #ifndef RETROPAD_CONFIG_H
 #define RETROPAD_CONFIG_H
+
+
+// ============================================================================
+// NES CONTROLLER
+// ============================================================================
+//
+// NES shares the SNES Clock (GPIO5) and Latch (GPIO6), defined below. Both are outputs, so both
+// pads can listen to the same lines. Data is separate so both can stay
+// plugged in and the firmware knows which socket a pad is in.
+//
+// Connector pinout:
+//
+// 1 = GND
+// 2 = Clock -> GPIO5 (shared with SNES)
+// 3 = Latch -> GPIO6 (shared with SNES)
+// 4 = Data  -> GPIO15
+// 5 = not connected (Zapper)
+// 6 = not connected (Zapper)
+// 7 = 3.3V (not 5V: Data must stay at 3.3V logic)
+//
+
+#define RETROPAD_NES_DATA_GPIO        15
 
 
 // ============================================================================
@@ -46,27 +68,12 @@
 
 
 // ============================================================================
-// NES CONTROLLER
+// N64 CONTROLLER
 // ============================================================================
 //
-// NES shares SNES Clock (GPIO5) and Latch (GPIO6). Both are outputs, so both
-// pads can listen to the same lines. Data is separate so both can stay
-// plugged in and the firmware knows which socket a pad is in.
-//
-// Connector pinout:
-//
-// 1 = GND
-// 2 = Clock -> GPIO5 (shared with SNES)
-// 3 = Latch -> GPIO6 (shared with SNES)
-// 4 = Data  -> GPIO15
-// 5 = not connected (Zapper)
-// 6 = not connected (Zapper)
-// 7 = 3.3V (not 5V: Data must stay at 3.3V logic)
+// N64 uses a single bidirectional Joybus data line.
 //
 
-#define RETROPAD_NES_DATA_GPIO        15
-
-// N64 controller Joybus DATA
 #define RETROPAD_N64_DATA_GPIO        14
 
 
@@ -83,10 +90,10 @@
 //              RP2350's internal pull-up)
 // 3 = GND
 // 4 = GND
-// 5 = not connected
+// 5 = GND
 // 6 = 3.3V (controller logic)
 //
-// Wire EVERY ground point on the port to GND. Detection only started
+// Wire EVERY ground point on the port to GND (pins 3, 4 and 5). Detection only started
 // working once all of them were connected: the controller may not tie its
 // grounds together internally, so a missing one can leave its logic
 // without a ground.

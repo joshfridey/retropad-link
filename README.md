@@ -3,7 +3,7 @@
 Firmware for an RP2350 board that turns original Nintendo controllers into USB
 gamepads, with a built-in controller tester on a small OLED screen.
 
-Plug in a **SNES, NES, N64 or GameCube** controller and it shows up on your PC
+Plug in an **NES, SNES, N64 or GameCube** controller and it shows up on your PC
 as a USB gamepad. Hold two buttons for three seconds and the screen becomes a
 tester: live button display, joystick wear test, rumble test, and diagnostics
 that catch worn or bouncing buttons.
@@ -21,7 +21,7 @@ Waveshare Core2350B with the wiring described under [Hardware](#hardware).
 
 ## Features
 
-- **Four controller ports:** SNES, NES, N64 and GameCube.
+- **Four controller ports:** NES, SNES, N64 and GameCube.
 - **One controller at a time.** The firmware checks the ports in the order
   SNES → NES → N64 → GameCube and uses the first controller it finds. Unplug
   it and it goes back to scanning.
@@ -48,22 +48,11 @@ Waveshare Core2350B with the wiring described under [Hardware](#hardware).
 
 ### Wiring
 
-All controllers run on **3.3 V**. Do not power the SNES, NES or N64 pads from
+All controllers run on **3.3 V**. Do not power the NES, SNES or N64 pads from
 5 V: their data lines would then send 5 V into the RP2350, which isn't 5 V
 tolerant. The only 5 V connection is the GameCube rumble motor.
 
 Pins are set in [`src/config.h`](src/config.h).
-
-**SNES**
-
-| Socket pin | Signal | RP2350 |
-|---|---|---|
-| 1 | Power | 3V3 |
-| 2 | Clock | GPIO5 |
-| 3 | Latch | GPIO6 |
-| 4 | Data | GPIO7 |
-| 5, 6 | — | not connected |
-| 7 | Ground | GND |
 
 **NES** shares Clock and Latch with the SNES port and has its own Data line, so
 both sockets can stay plugged in.
@@ -76,6 +65,17 @@ both sockets can stay plugged in.
 | 4 | Data | GPIO15 |
 | 5, 6 | Zapper only | not connected |
 | 7 | Power | 3V3 |
+
+**SNES**
+
+| Socket pin | Signal | RP2350 |
+|---|---|---|
+| 1 | Power | 3V3 |
+| 2 | Clock | GPIO5 |
+| 3 | Latch | GPIO6 |
+| 4 | Data | GPIO7 |
+| 5, 6 | — | not connected |
+| 7 | Ground | GND |
 
 **N64**
 
@@ -93,15 +93,15 @@ both sockets can stay plugged in.
 | 2 | Data | GPIO29 |
 | 3 | Ground | GND |
 | 4 | Ground | GND |
-| 5 | — | not connected |
+| 5 | Ground | GND |
 | 6 | Logic power | 3V3 |
 
 No external pull-up resistor is needed on the data line: the firmware turns on
 the RP2350's internal pull-up. If detection is unreliable with a long cable, a
 pull-up of about 1 kΩ from GPIO29 to 3V3 is the usual fix.
 
-Connect **every** ground on the GameCube socket. Detection did not work until
-all of them were wired: the controller may not join its grounds internally.
+Connect **every** ground on the GameCube socket (pins 3, 4 and 5). Detection
+did not work until all of them were wired: the controller may not join its grounds internally.
 
 **OLED**
 
@@ -131,7 +131,7 @@ if the board resets when the rumble motor starts.
 
 Hold **Start + Select** for 3 seconds (**Start + Z** on N64 and GameCube).
 
-| Action | SNES / NES | N64 / GameCube |
+| Action | NES / SNES | N64 / GameCube |
 |---|---|---|
 | Next page | Select + Right | Z + Right |
 | Previous page | Select + Left | Z + Left |
@@ -144,7 +144,7 @@ show how many pages there are and which one you're on.
 
 | Controller | Pages |
 |---|---|
-| SNES, NES | Live → Diagnostics → Raw |
+| NES, SNES | Live → Diagnostics → Raw |
 | N64 | Live → Stick → Diagnostics → Raw |
 | GameCube | Live → Stick → C-Stick → Rumble → Diagnostics → Raw |
 
@@ -253,7 +253,7 @@ src/
   controller_state.c     Latest routed input event
   controllers/
     controller_manager.c Detects which controller is plugged in
-    snes.c nes.c n64.c gamecube.c
+    nes.c snes.c n64.c gamecube.c
                          One adapter per controller (init / task / connected)
     gc/                  GameCube driver (modified copy, see Credits)
   *_logo.h               OLED logo bitmaps
@@ -309,6 +309,6 @@ Changes in the modified copies: raw stick readout and plug-in origin capture
 for the joystick test, a handshake that tries several probe commands and bit
 rates, and a different PIO block assignment.
 
-Nintendo, SNES, NES, Nintendo 64 and GameCube are trademarks of Nintendo.
+Nintendo, NES, SNES, Nintendo 64 and GameCube are trademarks of Nintendo.
 "Joypad" is a trademark of Robert Dale Smith. This project is not affiliated
 with or endorsed by either.
