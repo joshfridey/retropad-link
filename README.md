@@ -193,6 +193,10 @@ RetroPad Link also builds against the newest JoypadOS at the time of writing
 (`9fa79f45`, October 2026), and the patch applies to it cleanly. That
 combination hasn't been flashed and tested on hardware yet; `969c232c` has.
 
+The Pico SDK has no board definition for the Waveshare Core2350B, so
+RetroPad Link carries one in [`boards/`](boards/), and
+`PICO_BOARD_HEADER_DIRS` points the build at it.
+
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
 can't hang the firmware, and `snes_host_get_buttons()`.
 
@@ -201,6 +205,7 @@ Configure and build:
 ```sh
 cmake -S joypad-os/src -B retropad-link/build -G "Unix Makefiles" \
   -DPICO_BOARD=waveshare_core2350b \
+  -DPICO_BOARD_HEADER_DIRS="$PWD/retropad-link/boards" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PROJECT_INCLUDE="$PWD/retropad-link/retropad_hook.cmake"
 
@@ -234,6 +239,7 @@ USB output mode.
 
 ```
 .github/workflows/       Firmware build and release workflow
+boards/                  Pico SDK board definition for the Core2350B
 retropad_hook.cmake      Attaches RetroPad Link to the JoypadOS build
 retropad_target.cmake    Firmware target: sources, flags, PIO headers
 patches/                 Patch applied to JoypadOS
