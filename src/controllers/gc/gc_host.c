@@ -368,9 +368,6 @@ void gc_host_task(void)
             rumble_state[port]
         );
 
-        if (success) {
-        }
-
         // GBA-as-controller bridge: a cartless GBA boots into the BIOS
         // multiboot wait state in SIO normal mode — its 0x00 probe response
         // is silent until the joybus hardware activity flips it into JOY
