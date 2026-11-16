@@ -12,6 +12,13 @@ RetroPad Link is built on [JoypadOS](https://github.com/joypad-ai/joypad-os).
 It plugs into an unmodified JoypadOS build tree (plus one small patch) rather
 than forking it.
 
+## Download
+
+Ready-to-flash firmware is on the
+[Releases page](https://github.com/joshfridey/retropad-link/releases). Download
+the `.uf2` file and follow [Flashing](#flashing) below. It is built for the
+Waveshare Core2350B with the wiring described under [Hardware](#hardware).
+
 ## Features
 
 - **Four controller ports:** SNES, NES, N64 and GameCube.
@@ -202,15 +209,14 @@ make -C retropad-link/build -j"$(nproc)" joypad_retropad_link
 
 The firmware is `retropad-link/build/joypad_retropad_link.uf2`.
 
-The firmware has so far been built with JoypadOS's TinyUSB submodule at
-release 0.19.0 (`331c263`), older than the version JoypadOS pins. If the build
-fails, check that version out in `joypad-os/src/lib/tinyusb`.
+The same steps run automatically on GitHub for every push, in
+[`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ## Flashing
 
 **First time:** hold the board's **BOOT** button while plugging it in. An
-`RP2350` drive appears. Copy `joypad_retropad_link.uf2` onto it, and the board
-reboots into the firmware.
+`RP2350` drive appears. Copy the `.uf2` file onto it, and the board reboots
+into the firmware.
 
 **After that,** you can skip the button. The firmware has a USB serial port
 (`/dev/ttyACM*` on Linux) that accepts text commands. Send `BOOTSEL` to reboot
@@ -227,11 +233,13 @@ USB output mode.
 ## Project layout
 
 ```
+.github/workflows/       Firmware build and release workflow
 retropad_hook.cmake      Attaches RetroPad Link to the JoypadOS build
 retropad_target.cmake    Firmware target: sources, flags, PIO headers
 patches/                 Patch applied to JoypadOS
 src/
   config.h               All GPIO pin assignments
+  version.h              Firmware version
   app.c                  Main loop: connection state, test mode, rumble test
   ui.c                   OLED screens
   diagnostics.c          Button chatter / dropout detection
@@ -252,7 +260,33 @@ src/
 - PS1 / PS2 support is planned. JoypadOS has a driver for it; it needs the
   RP2350's third PIO block.
 
-## Credits and licences
+## Releasing
+
+Releases are built by GitHub Actions. To publish one:
+
+1. Set the new version in [`src/version.h`](src/version.h) and commit it.
+2. Tag that commit with the same version and push the tag:
+
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+The workflow builds the firmware and publishes a release with the `.uf2`, the
+third-party licence texts, and the exact source commits it was built from. It
+refuses to publish if the tag doesn't match `src/version.h`.
+
+## Licence
+
+RetroPad Link's source code is licensed under the
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for the files that carry
+other licences.
+
+**Firmware files (`.uf2`) are distributed under the GNU GPL v3.0,** because
+they include SNESpad, which is GPL-3.0. Each release lists the exact source it
+was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Credits
 
 - **[JoypadOS](https://github.com/joypad-ai/joypad-os)** by Robert Dale Smith,
   Apache License 2.0. RetroPad Link builds on it, and
@@ -261,6 +295,9 @@ src/
 - **[joybus-pio](https://github.com/JonnyHaystack/joybus-pio)** by
   JonnyHaystack, GNU LGPL 3.0. `src/controllers/gc/GamecubeController.c` is a modified
   copy of its GameCube controller reader, and stays under the LGPL 3.0.
+- **[SNESpad](https://github.com/RobertDaleSmith/SNESpad)**, GNU GPL 3.0. Reads
+  the SNES port, via JoypadOS's SNES host. (The NES port uses RetroPad Link's
+  own reader, `src/controllers/nes.c`.)
 
 Changes in the modified copies: raw stick readout and plug-in origin capture
 for the joystick test, a handshake that tries several probe commands and bit

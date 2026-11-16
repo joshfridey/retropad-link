@@ -1,0 +1,134 @@
+# Build the RetroPad Link firmware on every push and pull request.
+#
+# Pushing a version tag (v0.1.0, ...) also publishes a GitHub release with the
+# .uf2, the third-party licence texts, and the exact source commits used.
+# The tag must match RETROPAD_LINK_VERSION in src/version.h.
+
+name: Build firmware
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # JoypadOS commit RetroPad Link is built and tested against. Its submodules
+  # pin every library version (Pico SDK 2.2.0 with TinyUSB 0.18.0, etc.).
+  JOYPAD_OS_REF: 969c232c4e3332e6df6af524b001e1d65613f6bc
+  PICO_BOARD: waveshare_core2350b
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # only used to publish a release on version tags
+
+    steps:
+      - name: Check out RetroPad Link
+        uses: actions/checkout@v4
+        with:
+          path: retropad-link
+
+      - name: Check out JoypadOS
+        uses: actions/checkout@v4
+        with:
+          repository: joypad-ai/joypad-os
+          ref: ${{ env.JOYPAD_OS_REF }}
+          path: joypad-os
+          submodules: recursive
+
+      - name: Apply the RetroPad Link patch to JoypadOS
+        run: git -C joypad-os apply ../retropad-link/patches/joypad-os.patch
+
+      - name: Install the ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+
+      - name: Work out the version
+        id: version
+        run: |
+          version=$(sed -n 's/^#define RETROPAD_LINK_VERSION "\(.*\)"$/\1/p' retropad-link/src/version.h)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match RETROPAD_LINK_VERSION \"$version\" in src/version.h"
+              exit 1
+            fi
+            name="retropad-link-v$version"
+          else
+            name="retropad-link-v$version-${GITHUB_SHA::7}"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Configure
+        run: |
+          cmake -S joypad-os/src -B build -G "Unix Makefiles" \
+            -DPICO_BOARD="$PICO_BOARD" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PROJECT_INCLUDE="$GITHUB_WORKSPACE/retropad-link/retropad_hook.cmake"
+
+      - name: Build
+        run: make -C build -j"$(nproc)" joypad_retropad_link
+
+      - name: Package
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          mkdir -p dist "licenses/$NAME-licenses"
+          cp build/joypad_retropad_link.uf2 "dist/$NAME.uf2"
+
+          lic="licenses/$NAME-licenses"
+          cp retropad-link/LICENSE                       "$lic/RetroPad-Link-LICENSE.txt"
+          cp retropad-link/NOTICE                        "$lic/RetroPad-Link-NOTICE.txt"
+          cp retropad-link/THIRD_PARTY_NOTICES.md        "$lic/THIRD_PARTY_NOTICES.md"
+          cp joypad-os/LICENSE                           "$lic/JoypadOS-LICENSE.txt"
+          cp joypad-os/src/lib/SNESpad/LICENSE           "$lic/SNESpad-LICENSE-GPL-3.0.txt"
+          cp joypad-os/src/lib/joybus-pio/LICENSE        "$lic/joybus-pio-LICENSE-LGPL-3.0.txt"
+          cp joypad-os/src/lib/libxsm3/LICENSE.txt       "$lic/libxsm3-LICENSE-LGPL-2.1.txt"
+          cp joypad-os/src/lib/pico-sdk/LICENSE.TXT      "$lic/pico-sdk-LICENSE.txt"
+          cp joypad-os/src/lib/pico-sdk/lib/tinyusb/LICENSE "$lic/tinyusb-LICENSE.txt"
+          (cd licenses && zip -qr "../dist/$NAME-licenses.zip" "$NAME-licenses")
+
+          {
+            echo "Firmware for the Waveshare Core2350B (RP2350B). See the README for wiring."
+            echo
+            echo "**To flash:** hold BOOT while plugging the board in, then copy \`$NAME.uf2\` onto the \`RP2350\` drive."
+            echo
+            echo "The firmware file is distributed under the GNU GPL v3.0 because it includes SNESpad (GPL-3.0)."
+            echo "RetroPad Link's own source is Apache-2.0. Licence texts: \`$NAME-licenses.zip\`."
+            echo
+            echo "### Built from"
+            echo
+            echo "- RetroPad Link: \`$GITHUB_SHA\`"
+            echo "- JoypadOS: https://github.com/joypad-ai/joypad-os/tree/$JOYPAD_OS_REF with \`patches/joypad-os.patch\` applied"
+            echo "- JoypadOS submodules:"
+            echo '```'
+            git -C joypad-os submodule status --recursive
+            echo '```'
+          } > dist/release-notes.md
+
+          ls -l dist
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.name }}
+          path: |
+            dist/*.uf2
+            dist/*-licenses.zip
+            dist/release-notes.md
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "RetroPad Link $GITHUB_REF_NAME" \
+            --notes-file dist/release-notes.md \
+            "dist/$NAME.uf2" "dist/$NAME-licenses.zip"

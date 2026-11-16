@@ -1,6 +1,7 @@
 // app.c - RetroPad Link application entry point
 
 #include "app.h"
+#include "version.h"
 #include "profiles.h"
 #include "diagnostics.h"
 #include "joystick_diag.h"
@@ -488,7 +489,8 @@ void app_init(void)
 
 
     printf(
-        "[app:retropad-link] Initializing RetroPad Link v%s\n",
+        "[app:retropad-link] Initializing RetroPad Link v%s (JoypadOS %s)\n",
+        RETROPAD_LINK_VERSION,
         JOYPAD_VERSION
     );
 
