@@ -1,0 +1,131 @@
+diff --git a/src/core/services/display/display.c b/src/core/services/display/display.c
+index 4ce50c16..1e2dac9b 100644
+--- a/src/core/services/display/display.c
++++ b/src/core/services/display/display.c
+@@ -286,6 +286,45 @@ void display_init_i2c(const display_i2c_config_t* config) {
+     printf("[display] Initialized SH1107 128x64 OLED (I2C)\n");
+ }
+ 
++void display_init_sh1106_i2c(const display_i2c_config_t* config) {
++    if (!display_i2c_init(config)) {
++        return;
++    }
++
++    rotated_panel = false;
++    display_set_col_offset(2);
++
++    write_cmd(SH110X_DISPLAY_OFF);
++    write_cmd(SH110X_SET_DISPLAY_CLOCK);
++    write_cmd(0x80);
++    write_cmd(SH110X_SET_MULTIPLEX);
++    write_cmd(0x3F);
++    write_cmd(SH110X_SET_DISPLAY_OFFSET);
++    write_cmd(0x00);
++    write_cmd(SH110X_SET_START_LINE | 0x00);
++    write_cmd(SH110X_CHARGE_PUMP);
++    write_cmd(0x14);
++    write_cmd(SH110X_SEG_REMAP | 0x01);
++    write_cmd(SH110X_COM_SCAN_DEC);
++    write_cmd(SH110X_SET_COM_PINS);
++    write_cmd(0x12);
++    write_cmd(SH110X_SET_CONTRAST);
++    write_cmd(0xCF);
++    write_cmd(SH110X_SET_PRECHARGE);
++    write_cmd(0xF1);
++    write_cmd(SH110X_SET_VCOM_DETECT);
++    write_cmd(0x40);
++    write_cmd(SH110X_DISPLAY_ALL_ON_RESUME);
++    write_cmd(SH110X_NORMAL_DISPLAY);
++    write_cmd(SH110X_DISPLAY_ON);
++
++    display_clear();
++    display_update();
++
++    initialized = true;
++    printf("[display] Initialized SH1106 128x64 OLED (I2C)\n");
++}
++
+ void display_init_ssd1306_i2c(const display_i2c_config_t* config) {
+     // I2C transport init (sets function pointers + col_offset)
+     if (!display_i2c_init(config)) {
+diff --git a/src/core/services/display/display.h b/src/core/services/display/display.h
+index e6e832eb..40eed42c 100644
+--- a/src/core/services/display/display.h
++++ b/src/core/services/display/display.h
+@@ -38,6 +38,7 @@ void display_init(const display_config_t* config);
+ 
+ // Initialize display over I2C (SH1107)
+ void display_init_i2c(const display_i2c_config_t* config);
++void display_init_sh1106_i2c(const display_i2c_config_t* config);
+ 
+ // Initialize display over I2C (SSD1306)
+ void display_init_ssd1306_i2c(const display_i2c_config_t* config);
+diff --git a/src/core/services/display/display_i2c.c b/src/core/services/display/display_i2c.c
+index c801d8c4..e3da4de0 100644
+--- a/src/core/services/display/display_i2c.c
++++ b/src/core/services/display/display_i2c.c
+@@ -17,7 +17,7 @@ static uint8_t i2c_addr = 0x3C;
+ 
+ static void i2c_write_cmd(uint8_t cmd) {
+     uint8_t buf[2] = { 0x00, cmd };  // Co=0, D/C#=0 (command)
+-    i2c_write_blocking(i2c, i2c_addr, buf, 2, false);
++    i2c_write_timeout_us(i2c, i2c_addr, buf, 2, false, 5000);
+ }
+ 
+ static void i2c_write_data(const uint8_t* data, size_t len) {
+@@ -27,7 +27,7 @@ static void i2c_write_data(const uint8_t* data, size_t len) {
+     buf[0] = 0x40;  // Co=0, D/C#=1 (data)
+     size_t chunk = (len > 128) ? 128 : len;
+     memcpy(buf + 1, data, chunk);
+-    i2c_write_blocking(i2c, i2c_addr, buf, chunk + 1, false);
++    i2c_write_timeout_us(i2c, i2c_addr, buf, chunk + 1, false, 5000);
+ }
+ 
+ bool display_i2c_init(const display_i2c_config_t* config) {
+diff --git a/src/native/host/snes/snes_host.c b/src/native/host/snes/snes_host.c
+index e466ad25..fa84b986 100644
+--- a/src/native/host/snes/snes_host.c
++++ b/src/native/host/snes/snes_host.c
+@@ -303,6 +303,29 @@ int8_t snes_host_get_device_type(uint8_t port)
+     return snes_pads[port].type;
+ }
+ 
++uint32_t snes_host_get_buttons(uint8_t port)
++{
++    if (!initialized || port >= SNES_MAX_PORTS) {
++        return 0;
++    }
++
++    snespad_t* pad = &snes_pads[port];
++
++    if (pad->type == SNESPAD_NONE) {
++        return 0;
++    }
++
++    if (pad->type == SNESPAD_NES) {
++        return map_nes_to_usbr(pad);
++    }
++
++    if (pad->type == SNESPAD_CONTROLLER) {
++        return map_snes_to_usbr(pad);
++    }
++
++    return 0;
++}
++
+ bool snes_host_is_connected(void)
+ {
+     if (!initialized) return false;
+diff --git a/src/native/host/snes/snes_host.h b/src/native/host/snes/snes_host.h
+index 7fdece9c..b1797dea 100644
+--- a/src/native/host/snes/snes_host.h
++++ b/src/native/host/snes/snes_host.h
+@@ -62,6 +62,8 @@ void snes_host_task(void);
+ // Returns: -1=none, 0=SNES controller, 1=NES, 2=mouse, 3=keyboard
+ int8_t snes_host_get_device_type(uint8_t port);
+ 
++uint32_t snes_host_get_buttons(uint8_t port);
++
+ // Set rumble motor intensities for a SNES rumble controller (LRG protocol)
+ // Values are 0-255, scaled internally to 0-15. Safe on non-rumble controllers.
+ void snes_host_set_rumble(uint8_t port, uint8_t left, uint8_t right);
