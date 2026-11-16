@@ -1,5 +1,5 @@
-#ifndef N64_LOGO_H
-#define N64_LOGO_H
+#ifndef N64_LOGO_BITMAP_H
+#define N64_LOGO_BITMAP_H
 
 #include <stdint.h>
 
@@ -47,4 +47,4 @@ static const uint8_t n64_logo[] = {
     0x00, 0x00, 0x00, 0x00,
 };
 
-#endif // N64_LOGO_H
+#endif // N64_LOGO_BITMAP_H

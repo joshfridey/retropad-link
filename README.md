@@ -182,6 +182,10 @@ git apply ../retropad-link/patches/joypad-os.patch
 cd ..
 ```
 
+RetroPad Link also builds against the newest JoypadOS at the time of writing
+(`9fa79f45`, October 2026), and the patch applies to it cleanly. That
+combination hasn't been flashed and tested on hardware yet; `969c232c` has.
+
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
 can't hang the firmware, and `snes_host_get_buttons()`.
 

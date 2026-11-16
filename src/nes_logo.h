@@ -1,5 +1,5 @@
-#ifndef NES_LOGO_H
-#define NES_LOGO_H
+#ifndef NES_LOGO_BITMAP_H
+#define NES_LOGO_BITMAP_H
 
 #include <stdint.h>
 
