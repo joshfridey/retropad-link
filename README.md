@@ -232,14 +232,18 @@ RetroPad Link carries one in [`boards/`](boards/), and
 `PICO_BOARD_HEADER_DIRS` points the build at it.
 
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
-can't hang the firmware, and `snes_host_get_buttons()`. It also changes the
-PS1 / PS2 driver:
+can't hang the firmware, and `snes_host_get_buttons()`.
 
-- **Rumble fix.** The driver sent the motor levels in poll bytes 2 and 3, but
-  DualShock pads read them from bytes 3 and 4 (byte 2 is the multitap byte),
-  so the motors never ran. The patch moves them, checks that the controller
-  accepted the rumble setup, and sends that setup again whenever rumble
-  starts, because some setup passes leave a DualShock 2 unable to rumble.
+The GameCube and PS1 / PS2 drivers are not patched: RetroPad Link builds its
+own modified copies (`src/controllers/gc/`, `src/controllers/psx/`) instead of
+the JoypadOS files. The PS1 / PS2 copy changes:
+
+- **Rumble fix.** The JoypadOS driver sends the motor levels in poll bytes 2
+  and 3, but DualShock pads read them from bytes 3 and 4 (byte 2 is the
+  multitap byte), so the motors never run. The copy moves them, checks that
+  the controller accepted the rumble setup, and sends that setup again
+  whenever rumble starts, because some setup passes leave a DualShock 2
+  unable to rumble.
 - **Build switches.** RetroPad Link uses them to put the driver on the
   RP2350's third PIO block (`PSX_PIO`), to stop it reading GPIO7, the SNES
   data line, as a button (`PSX_USER_BUTTON_A1`), and to let the ANALOG button
@@ -302,6 +306,7 @@ src/
     nes.c snes.c n64.c gamecube.c playstation.c
                          One adapter per controller (init / task / connected)
     gc/                  GameCube driver (modified copy, see Credits)
+    psx/                 PS1 / PS2 driver (modified copy, see Credits)
   *_logo.h               OLED logo bitmaps
 ```
 
@@ -342,9 +347,10 @@ was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 ## Credits
 
 - **[JoypadOS](https://github.com/joypad-ai/joypad-os)** by Robert Dale Smith,
-  Apache License 2.0. RetroPad Link builds on it, including its PS1 / PS2
-  host driver. `src/controllers/gc/gc_host.c` is a modified copy of its
-  GameCube host driver, and `patches/joypad-os.patch` modifies JoypadOS files.
+  Apache License 2.0. RetroPad Link builds on it.
+  `src/controllers/gc/gc_host.c` and `src/controllers/psx/` are modified
+  copies of its GameCube and PS1 / PS2 host drivers, and
+  `patches/joypad-os.patch` modifies JoypadOS files.
 - **[joybus-pio](https://github.com/JonnyHaystack/joybus-pio)** by
   JonnyHaystack, GNU LGPL 3.0. `src/controllers/gc/GamecubeController.c` is a modified
   copy of its GameCube controller reader, and stays under the LGPL 3.0.
@@ -352,9 +358,10 @@ was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
   the SNES port, via JoypadOS's SNES host. (The NES port uses RetroPad Link's
   own reader, `src/controllers/nes.c`.)
 
-Changes in the modified copies: raw stick readout and plug-in origin capture
+Changes in the GameCube copies: raw stick readout and plug-in origin capture
 for the joystick test, a handshake that tries several probe commands and bit
-rates, and a different PIO block assignment.
+rates, and a different PIO block assignment. Changes in the PS1 / PS2 copy:
+see [Building](#building).
 
 Nintendo, NES, SNES, Nintendo 64 and GameCube are trademarks of Nintendo.
 PlayStation and DualShock are trademarks of Sony Interactive Entertainment.

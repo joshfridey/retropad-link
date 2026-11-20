@@ -81,8 +81,8 @@ target_sources(
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/joybus.c
     ${RETROPAD_LINK_DIR}/src/controllers/gc/GamecubeController.c
 
-    # PlayStation host
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx/psx_host.c
+    # PlayStation host - RetroPad-local copy of the JoypadOS driver
+    ${RETROPAD_LINK_DIR}/src/controllers/psx/psx_host.c
 
     # RetroPad Link
     ${RETROPAD_LINK_DIR}/src/app.c
@@ -128,7 +128,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 
-    # PlayStation
+    # PlayStation (psx_host.h; the driver itself is RetroPad Link's copy)
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx
 )
 
@@ -230,11 +230,14 @@ pico_generate_pio_header(
 # ============================================================================
 # PLAYSTATION PIO HEADER
 # ============================================================================
+#
+# From RetroPad Link's copy of the PSX driver, not the JoypadOS one.
+#
 
 pico_generate_pio_header(
     joypad_retropad_link
 
-    "${CMAKE_SOURCE_DIR}/native/host/psx/psx.pio"
+    "${RETROPAD_LINK_DIR}/src/controllers/psx/psx.pio"
 
     OUTPUT_DIR
     "${RETROPAD_PIO_OUTPUT_DIR}"
