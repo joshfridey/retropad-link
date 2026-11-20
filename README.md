@@ -25,7 +25,9 @@ Waveshare Core2350B with the wiring described under [Hardware](#hardware).
 
 - **Five controller ports:** NES, SNES, N64, GameCube and PlayStation. The
   PlayStation port takes PS1 and PS2 pads: digital pads, DualShock and
-  DualShock 2 (switched into analog mode automatically).
+  DualShock 2. DualShock pads are switched into analog mode when plugged in;
+  after that the ANALOG button switches between digital and analog as it
+  does on a console.
 - **One controller at a time.** The firmware checks the ports in the order
   SNES → NES → N64 → GameCube → PlayStation and uses the first controller it
   finds. Unplug
@@ -191,7 +193,8 @@ console uses.
 *DROPOUT* means a button held for at least 0.3 s let go for under 30 ms.
 
 **Rumble:** hold A (GameCube) or Cross (PlayStation). The motors stop when you
-let go, change page, or unplug the controller.
+let go, change page, or unplug the controller. A DualShock only rumbles in
+analog mode (red light), so press ANALOG first if the light is off.
 
 ## Building
 
@@ -229,10 +232,19 @@ RetroPad Link carries one in [`boards/`](boards/), and
 `PICO_BOARD_HEADER_DIRS` points the build at it.
 
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
-can't hang the firmware, and `snes_host_get_buttons()`. It also gives the
-PS1 / PS2 driver two build switches, which RetroPad Link uses to put it on the
-RP2350's third PIO block (`PSX_PIO`) and to stop it reading GPIO7, the SNES
-data line, as a button (`PSX_USER_BUTTON_A1`).
+can't hang the firmware, and `snes_host_get_buttons()`. It also changes the
+PS1 / PS2 driver:
+
+- **Rumble fix.** The driver sent the motor levels in poll bytes 2 and 3, but
+  DualShock pads read them from bytes 3 and 4 (byte 2 is the multitap byte),
+  so the motors never ran. The patch moves them, checks that the controller
+  accepted the rumble setup, and sends that setup again whenever rumble
+  starts, because some setup passes leave a DualShock 2 unable to rumble.
+- **Build switches.** RetroPad Link uses them to put the driver on the
+  RP2350's third PIO block (`PSX_PIO`), to stop it reading GPIO7, the SNES
+  data line, as a button (`PSX_USER_BUTTON_A1`), and to let the ANALOG button
+  switch modes instead of the driver forcing analog mode
+  (`PSX_KEEP_ANALOG=0`).
 
 Configure and build:
 

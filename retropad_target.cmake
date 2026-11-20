@@ -51,6 +51,7 @@ target_compile_definitions(
 
     PSX_PIO=pio2
     PSX_USER_BUTTON_A1=0
+    PSX_KEEP_ANALOG=0
 )
 
 

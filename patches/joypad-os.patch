@@ -82,11 +82,53 @@ index c801d8c4..e3da4de0 100644
  }
  
  bool display_i2c_init(const display_i2c_config_t* config) {
+diff --git a/src/native/host/psx/psx.pio b/src/native/host/psx/psx.pio
+index 11a667f6..0ab46f7e 100644
+--- a/src/native/host/psx/psx.pio
++++ b/src/native/host/psx/psx.pio
+@@ -4,9 +4,11 @@
+ ;   - idles with CLK, ATT high (DAT released/input)
+ ;   - blocks on `pull` until the CPU pushes a 32-bit command word (trigger)
+ ;   - drops ATT, then clocks 21 bytes LSB-first:
+-;       * first 4 bytes shift CMD out from the 32-bit word: 0x01, 0x42, then the
+-;         small-motor (on/off) and large-motor (PWM) rumble bytes
+-;       * remaining 17 bytes just clock to read DAT (CMD idles low = 0x00)
++;       * first 5 bytes shift CMD out from two 32-bit words: 0x01, 0x42, 0x00
++;         (multitap), then the small-motor (on/off) and large-motor (PWM) rumble
++;         bytes. The motor bytes must be poll bytes 3 and 4, where the 0x4D
++;         rumble mapping points them (byte 2 is never a motor byte).
++;       * remaining 16 bytes just clock to read DAT (CMD idles low = 0x00)
+ ;   - ACTIVE PULL-UP: each bit, DAT is briefly DRIVEN high (weak 2mA) then released
+ ;     to input before sampling. The 2mA charge wins on a released '1' bit (fast rise
+ ;     despite the weak internal pull-up + cable capacitance) but loses to the
+@@ -28,11 +30,12 @@
+ .side_set 2
+ 
+ .wrap_target
+-    set y, 3         side 0b11 [7]      ; 4 command bytes (0x01,0x42,smallMotor,largeMotor); idle CLK=1 ATT=1
++    set y, 4         side 0b11 [7]      ; 5 command bytes (0x01,0x42,0x00,smallMotor,largeMotor); idle CLK=1 ATT=1
+     pull             side 0b11 [7]      ; wait for CPU trigger word (idle high)
+     nop              side 0b01 [7]      ; ATT low -> select (CLK stays high)
+ 
+ cmd_byte:
++    pull ifempty     side 0b01          ; 5th byte: fetch the second command word
+     set x, 7         side 0b01 [7]      ; 8 bits per byte (CLK high)
+ cmd_bit:
+     out pins, 1      side 0b01          ; drive CMD bit (LSB first), CLK high
+@@ -42,7 +45,7 @@ cmd_bit:
+     in pins, 1       side 0b00          ; sample DAT (CLK still low)
+     jmp x-- cmd_bit  side 0b01          ; CLK=1 (rising edge)
+     jmp y-- cmd_byte side 0b01
+-    set y, 16        side 0b01          ; 17 more data bytes (4 cmd + 17 = 21 = PSX_HW_BYTES)
++    set y, 15        side 0b01          ; 16 more data bytes (5 cmd + 16 = 21 = PSX_HW_BYTES)
+ 
+ data_byte:
+     set x, 7         side 0b01 [7]
 diff --git a/src/native/host/psx/psx_host.c b/src/native/host/psx/psx_host.c
-index e611229e..606731e4 100644
+index e611229e..8b401092 100644
 --- a/src/native/host/psx/psx_host.c
 +++ b/src/native/host/psx/psx_host.c
-@@ -64,7 +64,19 @@ static uint8_t pin_clk = PSX_PIN_CLK;
+@@ -64,7 +64,28 @@ static uint8_t pin_clk = PSX_PIN_CLK;
  static uint8_t pin_att = PSX_PIN_ATT;
  static uint8_t pin_dat = PSX_PIN_DAT;
  
@@ -103,11 +145,260 @@ index e611229e..606731e4 100644
 +#define PSX_USER_BUTTON_A1 1
 +#endif
 +
++// 1: keep DualShock pads in analog mode. Pressing ANALOG drops the pad to
++// digital for a moment, config switches it straight back, and the press is
++// reported as A1 (Guide/PS).
++// 0: switch the pad to analog once on connect, then let ANALOG toggle the mode
++// like a console that doesn't lock it. The press is not reported as A1.
++#ifndef PSX_KEEP_ANALOG
++#define PSX_KEEP_ANALOG 1
++#endif
++
 +static PIO       psx_pio = PSX_PIO;
  static uint      psx_sm;
  static int       psx_dma = -1;
  static uint32_t  psx_rx[PSX_HW_BYTES];   // DMA target: one byte per word (bits 31-24)
-@@ -560,7 +572,9 @@ static void psx_process(const uint8_t* buf) {
+@@ -78,6 +99,9 @@ static absolute_time_t   psx_next_config;   // throttle analog-enable retries
+ static absolute_time_t   psx_settle_until;  // hold off config until power stabilizes
+ static absolute_time_t   psx_a1_hold_until;  // hold A1 after an ANALOG-button toggle
+ static uint8_t           config_attempts;   // capped so non-DS2 pads stop retrying
++static bool              psx_rumble_mapped; // pad confirmed the enable_rumble motor map
++static bool              psx_setup_done;    // pad reached analog mode since it connected
++static bool              psx_rumble_refresh; // rumble just started: re-send the motor map
+ 
+ // The bit-bang config (esp. set_bytes_large) is flaky and often needs many
+ // tries before the DS2 latches into 0x79 pressure mode, so retry persistently
+@@ -116,21 +140,22 @@ static bool      last_submitted = false;
+ // DualShock rumble motor levels sent in each poll's command bytes (small = on/off,
+ // large = PWM). Only take effect after enable_rumble (0x4D) maps them; set from the
+ // output's feedback state in psx_host_task.
+-static uint8_t psx_rumble_small = 0;   // command byte 2: small motor, 0 off / nonzero on
+-static uint8_t psx_rumble_large = 0;   // command byte 3: large motor, 0-255 PWM
++static uint8_t psx_rumble_small = 0;   // command byte 3: small motor, 0 off / nonzero on
++static uint8_t psx_rumble_large = 0;   // command byte 4: large motor, 0-255 PWM
+ 
+ // Arm the DMA for one transaction and trigger the PIO. Non-blocking.
+-// Always reads the full 21-byte frame (4 command + 17 data). At 500 kHz the
++// Always reads the full 21-byte frame (5 command + 16 data). At 500 kHz the
+ // inter-poll recovery gap dominates the rate, so a shorter read wouldn't help.
+ static void psx_start_xfer(void) {
+     psx_busy = true;
+     dma_channel_set_write_addr(psx_dma, psx_rx, false);
+     dma_channel_set_trans_count(psx_dma, PSX_HW_BYTES, true);   // arm + start
+-    // Command word, shifted LSB-first by the PIO: byte0=0x01, byte1=0x42,
+-    // byte2=small motor, byte3=large motor (the rumble control bytes).
++    // Two command words, shifted LSB-first by the PIO: byte0=0x01, byte1=0x42,
++    // byte2=0x00 (multitap), byte3=small motor, byte4=large motor. The motor
++    // bytes must be at 3 and 4 to match the enable_rumble (0x4D) mapping.
+     pio_sm_put(psx_pio, psx_sm,
+-               0x01u | (0x42u << 8) |
+-               ((uint32_t)psx_rumble_small << 16) | ((uint32_t)psx_rumble_large << 24));
++               0x01u | (0x42u << 8) | ((uint32_t)psx_rumble_small << 24));
++    pio_sm_put(psx_pio, psx_sm, (uint32_t)psx_rumble_large);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -165,32 +190,31 @@ static uint8_t psx_bb_byte(uint8_t out) {
+     return in;
+ }
+ 
+-static void psx_bb_cmd(const uint8_t* cmd, int len) {
++// Send one command; the controller's reply bytes go to rsp (len bytes) if non-NULL.
++static void psx_bb_cmd(const uint8_t* cmd, int len, uint8_t* rsp_out) {
+     gpio_put(pin_att, 0);                            // select
+     busy_wait_us(14);
+-    for (int i = 0; i < len; i++) psx_bb_byte(cmd[i]);
++    for (int i = 0; i < len; i++) {
++        uint8_t in = psx_bb_byte(cmd[i]);
++        if (rsp_out) rsp_out[i] = in;
++    }
+     gpio_put(pin_att, 1);                            // deselect
+     busy_wait_us(600);                               // inter-command recovery (DS2 needs time)
+ }
+ 
+-static void psx_send_config(void) {
+-    static const uint8_t enter_config[]    = {0x01, 0x43, 0x00, 0x01, 0x00};
+-    static const uint8_t type_read[]       = {0x01, 0x45, 0x00, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A};
+-    // byte4 = lock: 0x00 (unlocked) not 0x03. Locking lets a failed first config
+-    // (e.g. mid-boot on hot-swap) latch the pad in 0x73 and reject re-config, so
+-    // it gets stuck without pressure. Unlocked, a later retry can still upgrade it.
+-    static const uint8_t set_mode[]        = {0x01, 0x44, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
+-    // Map poll command byte 2 -> small motor (0x00), byte 3 -> large motor (0x01),
+-    // so the rumble bytes in psx_start_xfer's command word actually drive the motors.
+-    static const uint8_t enable_rumble[]   = {0x01, 0x4D, 0x00, 0x00, 0x01};
+-    static const uint8_t set_bytes_large[] = {0x01, 0x4F, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x00, 0x00};
+-    static const uint8_t exit_config[]     = {0x01, 0x43, 0x00, 0x00, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A};
+-
+-    // Borrow the pins from the (parked) PIO. CRITICAL: pre-load the SIO output
+-    // registers to the idle state (CLK/CMD/ATT high, DAT input) BEFORE switching
+-    // the pin mux to SIO. If we switch the mux first, the pins momentarily drive
+-    // stale/low SIO values -> a spurious CLK/ATT edge that desyncs the controller
+-    // and corrupts the config (the cause of the flaky DS2 pressure-enable).
++static const uint8_t psx_enter_config[]    = {0x01, 0x43, 0x00, 0x01, 0x00};
++static const uint8_t psx_exit_config[]     = {0x01, 0x43, 0x00, 0x00, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A};
++// Map poll command byte 3 -> small motor (0x00), byte 4 -> large motor (0x01),
++// so the rumble bytes in psx_start_xfer's command words actually drive the
++// motors. 0xFF leaves the remaining poll bytes unmapped.
++static const uint8_t psx_enable_rumble[]   = {0x01, 0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF};
++
++// Borrow the pins from the (parked) PIO. CRITICAL: pre-load the SIO output
++// registers to the idle state (CLK/CMD/ATT high, DAT input) BEFORE switching
++// the pin mux to SIO. If we switch the mux first, the pins momentarily drive
++// stale/low SIO values -> a spurious CLK/ATT edge that desyncs the controller
++// and corrupts the config (the cause of the flaky DS2 pressure-enable).
++static void psx_pins_to_sio(void) {
+     gpio_put(pin_clk, 1);
+     gpio_put(pin_cmd, 1);
+     gpio_put(pin_att, 1);
+@@ -203,22 +227,10 @@ static void psx_send_config(void) {
+     gpio_set_function(pin_att, GPIO_FUNC_SIO);
+     gpio_set_function(pin_dat, GPIO_FUNC_SIO);
+     busy_wait_us(100);
++}
+ 
+-    psx_bb_cmd(enter_config,    sizeof(enter_config));
+-    psx_bb_cmd(type_read,       sizeof(type_read));       // read type (primes the pad)
+-    psx_bb_cmd(set_mode,        sizeof(set_mode));        // analog + lock
+-    psx_bb_cmd(enable_rumble,   sizeof(enable_rumble));   // map the two motor bytes
+-    // Send the DS2 full-pressure command several times — the mask bytes are the
+-    // flaky part, so repeating raises the odds all bytes land in one config pass.
+-    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large));
+-    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large));
+-    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large));
+-    // Exit twice: a flaky single exit can leave the pad in config mode (0xF3),
+-    // which a DS1 would otherwise stay stuck in once the retry cap is reached.
+-    psx_bb_cmd(exit_config,     sizeof(exit_config));
+-    psx_bb_cmd(exit_config,     sizeof(exit_config));
+-
+-    // Hand the pins back to the PIO (still parked at `pull`).
++// Hand the pins back to the PIO (still parked at `pull`).
++static void psx_pins_to_pio(void) {
+     pio_gpio_init(psx_pio, pin_clk);
+     pio_gpio_init(psx_pio, pin_att);
+     pio_gpio_init(psx_pio, pin_cmd);
+@@ -228,6 +240,58 @@ static void psx_send_config(void) {
+     pio_sm_set_consecutive_pindirs(psx_pio, psx_sm, pin_dat, 1, false);
+ }
+ 
++// Map the two motor bytes (pad must be in config mode). The bit-banged bytes
++// don't always land, so check: 0x4D replies with the map that was in place
++// BEFORE it (bytes 3..8). Resend until a reply shows our map (small = 0x00,
++// large = 0x01) took effect.
++static void psx_map_rumble(void) {
++    uint8_t rsp[sizeof(psx_enable_rumble)];
++    psx_bb_cmd(psx_enable_rumble, sizeof(psx_enable_rumble), NULL);
++    psx_rumble_mapped = false;
++    for (int i = 0; i < 4 && !psx_rumble_mapped; i++) {
++        psx_bb_cmd(psx_enable_rumble, sizeof(psx_enable_rumble), rsp);
++        psx_rumble_mapped = (rsp[2] == 0x5A && rsp[3] == 0x00 && rsp[4] == 0x01);
++    }
++}
++
++static void psx_send_config(void) {
++    static const uint8_t type_read[]       = {0x01, 0x45, 0x00, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A};
++    // byte4 = lock: 0x00 (unlocked) not 0x03. Locking lets a failed first config
++    // (e.g. mid-boot on hot-swap) latch the pad in 0x73 and reject re-config, so
++    // it gets stuck without pressure. Unlocked, a later retry can still upgrade it.
++    static const uint8_t set_mode[]        = {0x01, 0x44, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
++    static const uint8_t set_bytes_large[] = {0x01, 0x4F, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x00, 0x00};
++
++    psx_pins_to_sio();
++
++    psx_bb_cmd(psx_enter_config, sizeof(psx_enter_config), NULL);
++    psx_bb_cmd(type_read,        sizeof(type_read), NULL);       // read type (primes the pad)
++    psx_bb_cmd(set_mode,         sizeof(set_mode), NULL);        // analog + lock
++    // Send the DS2 full-pressure command several times — the mask bytes are the
++    // flaky part, so repeating raises the odds all bytes land in one config pass.
++    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large), NULL);
++    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large), NULL);
++    psx_bb_cmd(set_bytes_large, sizeof(set_bytes_large), NULL);
++    psx_map_rumble();                                            // last before exit
++    // Exit twice: a flaky single exit can leave the pad in config mode (0xF3),
++    // which a DS1 would otherwise stay stuck in once the retry cap is reached.
++    psx_bb_cmd(psx_exit_config, sizeof(psx_exit_config), NULL);
++    psx_bb_cmd(psx_exit_config, sizeof(psx_exit_config), NULL);
++
++    psx_pins_to_pio();
++}
++
++// Re-send only the motor map. Run when rumble starts, so a config pass that
++// left the pad unable to rumble can't stick until the next mode change.
++static void psx_refresh_rumble(void) {
++    psx_pins_to_sio();
++    psx_bb_cmd(psx_enter_config, sizeof(psx_enter_config), NULL);
++    psx_map_rumble();
++    psx_bb_cmd(psx_exit_config, sizeof(psx_exit_config), NULL);
++    psx_bb_cmd(psx_exit_config, sizeof(psx_exit_config), NULL);
++    psx_pins_to_pio();
++}
++
+ // DMA-completion ISR: snapshot the bytes and mark the transaction done. The
+ // task consumes psx_snap and PACES the next poll (recovery gap), so we do NOT
+ // re-fire here — back-to-back polling overwhelms the controller.
+@@ -367,8 +431,12 @@ void psx_host_task(void) {
+     if (last_real_id != PSX_ID_JOGCON) {
+         feedback_state_t* fb = feedback_get_state(0);
+         if (fb) {
++            bool was_off = (psx_rumble_large == 0 && psx_rumble_small == 0);
+             psx_rumble_large = fb->rumble.left;
+             psx_rumble_small = (fb->rumble.right > 0) ? 0xFF : 0x00;
++            if (was_off && (psx_rumble_large || psx_rumble_small)) {
++                psx_rumble_refresh = true;
++            }
+         }
+     }
+ 
+@@ -385,14 +453,33 @@ void psx_host_task(void) {
+     //    in pressure mode (0x79). Capped so a DS1 / analog-only pad (which can't
+     //    reach 0x79) doesn't reconfigure forever. NegCon (0x23) is left alone.
+     //    Safe to bit-bang here: !psx_busy means the PIO is parked.
+-    if (connected && config_attempts < PSX_MAX_CONFIG_ATTEMPTS &&
+-        (last_id == PSX_ID_DIGITAL || last_id == PSX_ID_ANALOG || last_id == PSX_ID_CONFIG) &&
++    //    A pad in pressure mode whose rumble map didn't take is configured again.
++    //    With PSX_KEEP_ANALOG=0 a digital pad is configured only until it first
++    //    reaches analog, so ANALOG can switch it back to digital.
++#if PSX_KEEP_ANALOG
++    bool want_config = (last_id == PSX_ID_DIGITAL);
++#else
++    bool want_config = (last_id == PSX_ID_DIGITAL && !psx_setup_done);
++#endif
++    want_config = want_config ||
++                  last_id == PSX_ID_ANALOG || last_id == PSX_ID_CONFIG ||
++                  (last_id == PSX_ID_PRESSURE && !psx_rumble_mapped);
++    if (connected && config_attempts < PSX_MAX_CONFIG_ATTEMPTS && want_config &&
+         !psx_busy && time_reached(psx_settle_until) && time_reached(psx_next_config)) {
+         psx_next_config = make_timeout_time_us(PSX_CONFIG_INTERVAL_US);
+         config_attempts++;
+         psx_send_config();
+     }
+ 
++    // 2b) Rumble just started: re-send the motor map (analog-family pads only).
++    if (psx_rumble_refresh && !psx_busy) {
++        psx_rumble_refresh = false;
++        if (connected && (last_id == PSX_ID_ANALOG || last_id == PSX_ID_PRESSURE ||
++                          last_id == PSX_ID_FLIGHT)) {
++            psx_refresh_rumble();
++        }
++    }
++
+     // 3) Pace the next poll: re-fire only after the recovery interval and when no
+     //    transaction is in flight, giving the controller console-like recovery
+     //    (ATT stays high in between) instead of being hammered back-to-back.
+@@ -441,7 +528,13 @@ static void psx_process(const uint8_t* buf) {
+     // PS-button init registers while config flips it back to analog.
+     if (id == PSX_ID_DIGITAL &&
+         (prev_real == PSX_ID_ANALOG || prev_real == PSX_ID_PRESSURE)) {
++#if PSX_KEEP_ANALOG
+         psx_a1_hold_until = make_timeout_time_us(200000);   // ~200 ms
++#endif
++        psx_rumble_mapped = false;   // digital mode drops the motor map
++    }
++    if (id == PSX_ID_ANALOG || id == PSX_ID_PRESSURE) {
++        psx_setup_done = true;
+     }
+ 
+     // Remember that this pad is analog-capable: DualShock-family pads (analog /
+@@ -560,7 +653,9 @@ static void psx_process(const uint8_t* buf) {
          // -> A1 (Guide/PS) while held. Lets the adapter trigger a Home/PS button
          // press without a Select+Start or ANALOG-button toggle. Double/triple
          // clicks still cycle the USB output mode through the button service.
@@ -117,6 +408,15 @@ index e611229e..606731e4 100644
  
          // Pressure controllers (neGcon) stream every poll so analog pressure
          // updates continuously, not just when a button bit toggles.
+@@ -631,6 +726,8 @@ static void psx_process(const uint8_t* buf) {
+         last_real_id = 0xFF;
+         pad_has_analog_btn = false;   // re-evaluate analog capability for the next pad
+         config_attempts = 0;   // reconfigure on the next controller
++        psx_rumble_mapped = false;
++        psx_setup_done = false;
+     }
+ }
+ 
 diff --git a/src/native/host/snes/snes_host.c b/src/native/host/snes/snes_host.c
 index e466ad25..fa84b986 100644
 --- a/src/native/host/snes/snes_host.c
