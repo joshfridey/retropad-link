@@ -49,6 +49,30 @@ const joystick_profile_t joystick_profile_gc_cstick = {
 };
 
 
+// DualShock sticks report 0-255 with 128 as centre; a healthy stick reaches
+// (or nearly reaches) the ends of the range. Centres commonly sit a few units
+// off 128. Thresholds are provisional: tune them against good pads.
+
+const joystick_profile_t joystick_profile_psx_left = {
+    .name = "PS L",
+    .full_scale = 135,
+    .reference_reach = 127,
+    .good_reach = 115,
+    .fair_reach = 100,
+    .center_tolerance = 10,
+};
+
+
+const joystick_profile_t joystick_profile_psx_right = {
+    .name = "PS R",
+    .full_scale = 135,
+    .reference_reach = 127,
+    .good_reach = 115,
+    .fair_reach = 100,
+    .center_tolerance = 10,
+};
+
+
 // ============================================================================
 // REST DETECTION
 // ============================================================================

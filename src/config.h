@@ -12,6 +12,7 @@
 //   SNES
 //   N64
 //   GameCube
+//   PlayStation (PS1 / PS2)
 //
 // OLED:
 //   1.3" SH1106 128x64 I2C
@@ -100,6 +101,32 @@
 //
 
 #define RETROPAD_GAMECUBE_DATA_GPIO   29
+
+
+// ============================================================================
+// PLAYSTATION CONTROLLER (PS1 / PS2)
+// ============================================================================
+//
+// SPI-like bus clocked by a PIO state machine on pio2. Clock and Attention
+// must be consecutive GPIOs, Clock first (PIO side-set).
+//
+// Connector pinout:
+//
+// 1 = DATA      -> GPIO22 (controller -> board; 10k pull-up to 3.3V)
+// 2 = COMMAND   -> GPIO19
+// 3 = MOTOR     -> 5V (rumble motors; a console supplies ~7.6V)
+// 4 = GND
+// 5 = 3.3V      (controller logic)
+// 6 = ATTENTION -> GPIO21
+// 7 = CLOCK     -> GPIO20
+// 8 = not connected
+// 9 = ACKNOWLEDGE (not used by the driver)
+//
+
+#define RETROPAD_PSX_CMD_GPIO         19
+#define RETROPAD_PSX_CLK_GPIO         20
+#define RETROPAD_PSX_ATT_GPIO         21
+#define RETROPAD_PSX_DAT_GPIO         22
 
 
 // ============================================================================

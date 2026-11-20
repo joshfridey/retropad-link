@@ -870,8 +870,14 @@ void ui_draw_joystick_reset_screen(void)
 //        HOLD A TO TEST
 //
 
-void ui_draw_rumble_screen(bool motor_on)
+void ui_draw_rumble_screen(
+    bool motor_on,
+    const char* button_name
+)
 {
+    char line[24];
+
+
     display_clear();
 
 
@@ -909,10 +915,17 @@ void ui_draw_rumble_screen(bool motor_on)
     }
 
 
+    snprintf(
+        line,
+        sizeof(line),
+        "HOLD %s TO TEST",
+        button_name
+    );
+
     display_text(
-        22,
+        (DISPLAY_WIDTH - (uint8_t)strlen(line) * 6) / 2,
         48,
-        "HOLD A TO TEST"
+        line
     );
 
 
@@ -1458,6 +1471,232 @@ void ui_draw_gc_live_screen(
     // C-stick
 
     ui_draw_stick_box(102, 48, 13, cstick_x, cstick_y);
+
+
+    display_update();
+}
+
+
+// ============================================================================
+// PLAYSTATION
+// ============================================================================
+
+void ui_draw_playstation_connected_screen(void)
+{
+    display_clear();
+
+
+    // Placeholder until a PlayStation logo bitmap is added.
+    display_text_large(
+        22,
+        6,
+        "PS1/PS2"
+    );
+
+
+    display_text(
+        34,
+        36,
+        "CONNECTED"
+    );
+
+
+    display_text(
+        13,
+        48,
+        "HOLD START+SELECT"
+    );
+
+
+    display_text(
+        7,
+        56,
+        "3 SEC FOR TEST MODE"
+    );
+
+
+    display_update();
+}
+
+
+// Face buttons are drawn as their symbols: outlined when released, solid
+// (or bold, for the cross) when pressed. (cx, cy) is the centre, r the radius.
+
+static void ui_draw_ps_triangle(
+    int16_t cx,
+    int16_t cy,
+    int16_t r,
+    bool pressed
+)
+{
+    int16_t top = cy - r;
+    int16_t height = 2 * r;
+
+
+    if (pressed) {
+
+        for (int16_t i = 0; i <= height; i++) {
+
+            int16_t half = i * r / height;
+
+            display_hline(
+                (uint8_t)(cx - half),
+                (uint8_t)(top + i),
+                (uint8_t)(2 * half + 1)
+            );
+        }
+
+        return;
+    }
+
+
+    stick_plot_line(cx, top, cx - r, cy + r);
+    stick_plot_line(cx, top, cx + r, cy + r);
+    stick_plot_line(cx - r, cy + r, cx + r, cy + r);
+}
+
+
+static void ui_draw_ps_circle(
+    int16_t cx,
+    int16_t cy,
+    int16_t r,
+    bool pressed
+)
+{
+    if (pressed) {
+        display_fill_circle((uint8_t)cx, (uint8_t)cy, (uint8_t)r, true);
+    }
+
+    else {
+        display_circle((uint8_t)cx, (uint8_t)cy, (uint8_t)r, true);
+    }
+}
+
+
+static void ui_draw_ps_square(
+    int16_t cx,
+    int16_t cy,
+    int16_t r,
+    bool pressed
+)
+{
+    if (pressed) {
+        display_fill_rect((uint8_t)(cx - r), (uint8_t)(cy - r), (uint8_t)(2 * r + 1), (uint8_t)(2 * r + 1), true);
+    }
+
+    else {
+        display_rect((uint8_t)(cx - r), (uint8_t)(cy - r), (uint8_t)(2 * r + 1), (uint8_t)(2 * r + 1));
+    }
+}
+
+
+static void ui_draw_ps_cross(
+    int16_t cx,
+    int16_t cy,
+    int16_t r,
+    bool pressed
+)
+{
+    stick_plot_line(cx - r, cy - r, cx + r, cy + r);
+    stick_plot_line(cx - r, cy + r, cx + r, cy - r);
+
+
+    // Pressed: thicken both strokes.
+    if (pressed) {
+
+        stick_plot_line(cx - r + 1, cy - r, cx + r, cy + r - 1);
+        stick_plot_line(cx - r, cy - r + 1, cx + r - 1, cy + r);
+        stick_plot_line(cx - r + 1, cy + r, cx + r, cy - r + 1);
+        stick_plot_line(cx - r, cy + r - 1, cx + r - 1, cy - r);
+    }
+}
+
+
+// Stick box with a second, inset outline while the stick is clicked (L3/R3).
+static void ui_draw_ps_stick(
+    uint8_t x,
+    uint8_t y,
+    uint8_t size,
+    uint8_t stick_x,
+    uint8_t stick_y,
+    bool clicked
+)
+{
+    ui_draw_stick_box(x, y, size, stick_x, stick_y);
+
+
+    if (clicked) {
+        display_rect(x + 1, y + 1, size - 2, size - 2);
+    }
+}
+
+
+// PLAYSTATION                .*....
+// [L2][L1]            [R1][R2]
+//     U                    T
+//   L   R    (l) (r)     S   O
+//     D                    X
+//         [SEL] [ST]
+//
+// (l) / (r) are the sticks; a double outline means L3 / R3 is pressed.
+
+void ui_draw_playstation_live_screen(
+    uint32_t buttons,
+    uint8_t left_x,
+    uint8_t left_y,
+    uint8_t right_x,
+    uint8_t right_y
+)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "PLAYSTATION"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_LIVE
+    );
+
+
+    // Shoulders
+
+    ui_draw_button(0, 11, buttons, JP_BUTTON_L2, "[L2]", " L2 ");
+    ui_draw_button(24, 11, buttons, JP_BUTTON_L1, "[L1]", " L1 ");
+    ui_draw_button(78, 11, buttons, JP_BUTTON_R1, "[R1]", " R1 ");
+    ui_draw_button(102, 11, buttons, JP_BUTTON_R2, "[R2]", " R2 ");
+
+
+    // D-pad
+
+    ui_draw_button(12, 22, buttons, JP_BUTTON_DU, "[U]", " U ");
+    ui_draw_button(0, 31, buttons, JP_BUTTON_DL, "[L]", " L ");
+    ui_draw_button(24, 31, buttons, JP_BUTTON_DR, "[R]", " R ");
+    ui_draw_button(12, 40, buttons, JP_BUTTON_DD, "[D]", " D ");
+
+
+    // Sticks (L3 / R3 shown as a double outline)
+
+    ui_draw_ps_stick(42, 24, 19, left_x, left_y, (buttons & JP_BUTTON_L3) != 0);
+    ui_draw_ps_stick(66, 24, 19, right_x, right_y, (buttons & JP_BUTTON_R3) != 0);
+
+
+    // Face buttons (JoypadOS: Cross=B1, Circle=B2, Square=B3, Triangle=B4)
+
+    ui_draw_ps_triangle(110, 25, 4, (buttons & JP_BUTTON_B4) != 0);
+    ui_draw_ps_square(100, 35, 4, (buttons & JP_BUTTON_B3) != 0);
+    ui_draw_ps_circle(120, 35, 4, (buttons & JP_BUTTON_B2) != 0);
+    ui_draw_ps_cross(110, 45, 4, (buttons & JP_BUTTON_B1) != 0);
+
+
+    // Select / Start
+
+    ui_draw_button(34, 54, buttons, JP_BUTTON_S1, "[SEL]", " SEL ");
+    ui_draw_button(68, 54, buttons, JP_BUTTON_S2, "[ST]", " ST ");
 
 
     display_update();

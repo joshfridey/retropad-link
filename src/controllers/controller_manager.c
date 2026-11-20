@@ -9,6 +9,7 @@
 //     -> probe NES
 //     -> probe N64
 //     -> probe GameCube
+//     -> probe PlayStation
 //
 //   SNES detected
 //     -> poll only SNES until disconnected
@@ -22,6 +23,9 @@
 //   GameCube detected
 //     -> poll only GameCube until disconnected
 //
+//   PlayStation detected
+//     -> poll only PlayStation until disconnected
+//
 //   disconnect
 //     -> clear USB output
 //     -> return to NONE
@@ -32,6 +36,7 @@
 #include "controllers/nes.h"
 #include "controllers/n64.h"
 #include "controllers/gamecube.h"
+#include "controllers/playstation.h"
 
 #include "core/router/router.h"
 #include "core/services/players/manager.h"
@@ -82,6 +87,10 @@ set_active_controller(retropad_controller_type_t controller)
 
         case RETROPAD_CONTROLLER_GAMECUBE:
             printf("[retropad] Controller detected: GameCube\n");
+            break;
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            printf("[retropad] Controller detected: PlayStation\n");
             break;
 
         case RETROPAD_CONTROLLER_NONE:
@@ -187,6 +196,22 @@ manager_task(void)
 
                 set_active_controller(
                     RETROPAD_CONTROLLER_GAMECUBE
+                );
+
+                return;
+            }
+
+
+            /*
+             * Nothing on GameCube. Try PlayStation.
+             */
+
+            retropad_playstation_task();
+
+            if (retropad_playstation_is_connected()) {
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_PLAYSTATION
                 );
 
                 return;
@@ -317,6 +342,31 @@ manager_task(void)
             break;
 
 
+        // --------------------------------------------------------------------
+        // PLAYSTATION
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+
+            retropad_playstation_task();
+
+            if (!retropad_playstation_is_connected()) {
+
+                router_reset_outputs();
+
+                remove_players_by_address(
+                    RETROPAD_PLAYSTATION_DEV_ADDR,
+                    0
+                );
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_NONE
+                );
+            }
+
+            break;
+
+
         default:
 
             router_reset_outputs();
@@ -422,6 +472,9 @@ retropad_controller_manager_get_name(void)
 
         case RETROPAD_CONTROLLER_GAMECUBE:
             return "GAMECUBE";
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            return "PLAYSTATION";
 
         case RETROPAD_CONTROLLER_NONE:
         default:

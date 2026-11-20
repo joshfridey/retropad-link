@@ -43,6 +43,10 @@ extern const joystick_profile_t joystick_profile_n64;
 extern const joystick_profile_t joystick_profile_gc_main;
 extern const joystick_profile_t joystick_profile_gc_cstick;
 
+// PlayStation DualShock: raw units from the 128 centre. Provisional thresholds.
+extern const joystick_profile_t joystick_profile_psx_left;
+extern const joystick_profile_t joystick_profile_psx_right;
+
 
 typedef enum {
     JOYSTICK_VERDICT_INCOMPLETE = 0,

@@ -34,6 +34,10 @@ add_executable(joypad_retropad_link)
 #
 # GameCube host on GPIO29 (see RETROPAD_GAMECUBE_DATA_GPIO in config.h).
 #
+# PlayStation host: N64 uses pio0 and GameCube pio1, so its poll engine goes
+# on pio2. The board's "user button" defaults to GPIO7 (SNES data), so the
+# driver's user-button -> PS button mapping is switched off.
+#
 
 target_compile_definitions(
     joypad_retropad_link
@@ -44,6 +48,9 @@ target_compile_definitions(
     DISABLE_USB_HOST=1
 
     GC_PIN_DATA=29
+
+    PSX_PIO=pio2
+    PSX_USER_BUTTON_A1=0
 )
 
 
@@ -73,6 +80,9 @@ target_sources(
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/joybus.c
     ${RETROPAD_LINK_DIR}/src/controllers/gc/GamecubeController.c
 
+    # PlayStation host
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx/psx_host.c
+
     # RetroPad Link
     ${RETROPAD_LINK_DIR}/src/app.c
     ${RETROPAD_LINK_DIR}/src/diagnostics.c
@@ -82,6 +92,7 @@ target_sources(
     ${RETROPAD_LINK_DIR}/src/controllers/snes.c
     ${RETROPAD_LINK_DIR}/src/controllers/nes.c
     ${RETROPAD_LINK_DIR}/src/controllers/n64.c
+    ${RETROPAD_LINK_DIR}/src/controllers/playstation.c
     ${RETROPAD_LINK_DIR}/src/controllers/gamecube.c
     ${RETROPAD_LINK_DIR}/src/controllers/controller_manager.c
 
@@ -115,6 +126,9 @@ target_include_directories(
     # GameCube / Joybus
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+
+    # PlayStation
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx
 )
 
 
@@ -130,6 +144,7 @@ target_link_libraries(
     pico_multicore
 
     hardware_pio
+    hardware_dma
     hardware_i2c
 
     pico_rand
@@ -205,6 +220,20 @@ pico_generate_pio_header(
     joypad_retropad_link
 
     "${CMAKE_SOURCE_DIR}/lib/joybus-pio/src/joybus.pio"
+
+    OUTPUT_DIR
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)
+
+
+# ============================================================================
+# PLAYSTATION PIO HEADER
+# ============================================================================
+
+pico_generate_pio_header(
+    joypad_retropad_link
+
+    "${CMAKE_SOURCE_DIR}/native/host/psx/psx.pio"
 
     OUTPUT_DIR
     "${RETROPAD_PIO_OUTPUT_DIR}"

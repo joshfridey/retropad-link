@@ -12,6 +12,7 @@
 #include "controllers/nes.h"
 #include "controllers/n64.h"
 #include "controllers/gamecube.h"
+#include "controllers/playstation.h"
 #include "controllers/controller_manager.h"
 
 
@@ -113,6 +114,32 @@ static bool rumble_test_on =
     false;
 
 
+// Button that runs the motors on the Rumble page, or 0 for controllers
+// without a Rumble page.
+static uint32_t rumble_test_button(retropad_controller_type_t active)
+{
+    switch (active) {
+
+        case RETROPAD_CONTROLLER_GAMECUBE:
+            return JP_BUTTON_B2;    // A
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            return JP_BUTTON_B1;    // Cross
+
+        default:
+            return 0;
+    }
+}
+
+
+static const char* rumble_test_button_name(retropad_controller_type_t active)
+{
+    return active == RETROPAD_CONTROLLER_PLAYSTATION
+        ? "CROSS"
+        : "A";
+}
+
+
 // ============================================================================
 // PAGE NAVIGATION
 // ============================================================================
@@ -197,6 +224,11 @@ static void retropad_draw_connected_screen(void)
     else if (active == RETROPAD_CONTROLLER_GAMECUBE) {
 
         ui_draw_gc_connected_screen();
+    }
+
+    else if (active == RETROPAD_CONTROLLER_PLAYSTATION) {
+
+        ui_draw_playstation_connected_screen();
     }
 
     else {
@@ -297,6 +329,20 @@ static void retropad_draw_live_screen(uint32_t buttons)
         );
     }
 
+    else if (
+        retropad_controller_manager_get_active() ==
+        RETROPAD_CONTROLLER_PLAYSTATION
+    ) {
+
+        ui_draw_playstation_live_screen(
+            buttons,
+            controller_state_get_analog(ANALOG_LX),
+            controller_state_get_analog(ANALOG_LY),
+            controller_state_get_analog(ANALOG_RX),
+            controller_state_get_analog(ANALOG_RY)
+        );
+    }
+
     else {
 
         ui_draw_live_screen(
@@ -323,6 +369,9 @@ static const joystick_profile_t* retropad_stick_profile(
         case RETROPAD_CONTROLLER_GAMECUBE:
             return &joystick_profile_gc_main;
 
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            return &joystick_profile_psx_left;
+
         default:
             return NULL;
     }
@@ -338,6 +387,9 @@ static const joystick_profile_t* retropad_second_stick_profile(
 
         case RETROPAD_CONTROLLER_GAMECUBE:
             return &joystick_profile_gc_cstick;
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            return &joystick_profile_psx_right;
 
         default:
             return NULL;
@@ -375,6 +427,19 @@ static uint8_t retropad_read_sticks(
             &x[1],
             &y[1]
         );
+
+        return 2;
+    }
+
+
+    if (active == RETROPAD_CONTROLLER_PLAYSTATION) {
+
+        // The PSX host passes the DualShock's raw 0-255 values through
+        // (128 = centre, 0 = up / left).
+        x[0] = (int16_t)controller_state_get_analog(ANALOG_LX) - 128;
+        y[0] = 128 - (int16_t)controller_state_get_analog(ANALOG_LY);
+        x[1] = (int16_t)controller_state_get_analog(ANALOG_RX) - 128;
+        y[1] = 128 - (int16_t)controller_state_get_analog(ANALOG_RY);
 
         return 2;
     }
@@ -459,7 +524,10 @@ static void retropad_draw_current_page(
         case TEST_PAGE_RUMBLE:
 
             ui_draw_rumble_screen(
-                rumble_test_on
+                rumble_test_on,
+                rumble_test_button_name(
+                    retropad_controller_manager_get_active()
+                )
             );
 
             break;
@@ -537,6 +605,8 @@ void app_init(void)
     retropad_n64_init();
 
     retropad_gamecube_init();
+
+    retropad_playstation_init();
 
 
     // ------------------------------------------------------------------------
@@ -764,43 +834,70 @@ void app_task(void)
         controller_state_update();
 
 
-    // SNES / NES are read straight from their readers. N64 / GameCube come
-    // from the routed USB event (controller_state).
+    bool playstation_active =
+        active_controller ==
+        RETROPAD_CONTROLLER_PLAYSTATION;
+
+
+    // SNES / NES are read straight from their readers. N64 / GameCube /
+    // PlayStation come from the routed USB event (controller_state).
     uint32_t buttons =
         snes_active
             ? retropad_snes_get_buttons()
             : nes_active
                 ? retropad_nes_get_buttons()
                 : (
-                    z_modifier
+                    z_modifier || playstation_active
                         ? controller_state_get_buttons()
                         : 0
                 );
 
 
+    // Buttons for menu combos. On PlayStation pads without an ANALOG button
+    // (original PS1 digital pads) the PSX host turns Select + Start into A1
+    // (PS button) and drops Select and Start, so A1 counts as both here.
+    // Diagnostics still sees the raw buttons.
+    uint32_t menu_buttons =
+        buttons;
+
+    if (
+        playstation_active &&
+        (buttons & JP_BUTTON_A1)
+    ) {
+
+        menu_buttons |=
+            JP_BUTTON_S1 |
+            JP_BUTTON_S2;
+    }
+
+
     bool select_held =
         z_modifier
-            ? ((buttons & JP_BUTTON_R1) != 0)
-            : ((buttons & JP_BUTTON_S1) != 0);
+            ? ((menu_buttons & JP_BUTTON_R1) != 0)
+            : ((menu_buttons & JP_BUTTON_S1) != 0);
 
 
     bool start_held =
-        (buttons & JP_BUTTON_S2) != 0;
+        (menu_buttons & JP_BUTTON_S2) != 0;
 
 
     // ========================================================================
     // RUMBLE TEST
     // ========================================================================
     //
-    // On the Rumble page the motor runs only while A is held. Leaving the
-    // page, leaving test mode or unplugging stops it.
+    // On the Rumble page the motors run only while the test button is held
+    // (GameCube A, PlayStation Cross). Leaving the page, leaving test mode or
+    // unplugging stops them.
+
+    uint32_t rumble_button =
+        rumble_test_button(active_controller);
 
     bool rumble_test_want =
         ui_state == UI_TESTING &&
         test_page == TEST_PAGE_RUMBLE &&
         connected &&
-        active_controller == RETROPAD_CONTROLLER_GAMECUBE &&
-        (buttons & JP_BUTTON_B2) != 0;
+        rumble_button != 0 &&
+        (buttons & rumble_button) != 0;
 
 
     if (rumble_test_want != rumble_test_on) {
@@ -808,9 +905,24 @@ void app_task(void)
         rumble_test_on =
             rumble_test_want;
 
-        retropad_gamecube_set_rumble(
-            rumble_test_on
-        );
+
+        if (rumble_test_on) {
+
+            if (active_controller == RETROPAD_CONTROLLER_GAMECUBE) {
+                retropad_gamecube_set_rumble(true);
+            }
+
+            else {
+                retropad_playstation_set_rumble(true);
+            }
+        }
+
+        // Stopping: switch both off, in case the controller changed.
+        else {
+
+            retropad_gamecube_set_rumble(false);
+            retropad_playstation_set_rumble(false);
+        }
 
 
         if (
@@ -819,7 +931,8 @@ void app_task(void)
         ) {
 
             ui_draw_rumble_screen(
-                rumble_test_on
+                rumble_test_on,
+                rumble_test_button_name(active_controller)
             );
         }
     }
@@ -1008,7 +1121,9 @@ void app_task(void)
                     ? DIAGNOSTICS_LAYOUT_GAMECUBE
                     : active_controller == RETROPAD_CONTROLLER_NES
                         ? DIAGNOSTICS_LAYOUT_NES
-                        : DIAGNOSTICS_LAYOUT_SNES
+                        : active_controller == RETROPAD_CONTROLLER_PLAYSTATION
+                            ? DIAGNOSTICS_LAYOUT_PLAYSTATION
+                            : DIAGNOSTICS_LAYOUT_SNES
         );
 
         joystick_diag_reset(
@@ -1018,12 +1133,13 @@ void app_task(void)
             )
         );
 
-        // Stick pages only for controllers with sticks (N64, GameCube);
-        // GameCube also gets C-stick and Rumble pages.
+        // Stick pages only for controllers with sticks (N64, GameCube,
+        // PlayStation); GameCube and PlayStation also get a second stick
+        // page and a Rumble page.
         ui_set_optional_pages(
             stick_profile != NULL,
             retropad_second_stick_profile(active_controller) != NULL,
-            active_controller == RETROPAD_CONTROLLER_GAMECUBE
+            rumble_test_button(active_controller) != 0
         );
 
 

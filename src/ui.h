@@ -67,7 +67,22 @@ void ui_draw_raw_screen(uint32_t buttons);
 void ui_draw_diagnostics_reset_screen(void);
 
 // Rumble test. motor_on: the motor is currently being driven.
-void ui_draw_rumble_screen(bool motor_on);
+// button_name: the button that runs it ("A", "CROSS").
+void ui_draw_rumble_screen(
+    bool motor_on,
+    const char* button_name
+);
+
+void ui_draw_playstation_connected_screen(void);
+
+// Sticks are the PSX host's raw 0-255 values (128 = centre, 0 = up / left).
+void ui_draw_playstation_live_screen(
+    uint32_t buttons,
+    uint8_t left_x,
+    uint8_t left_y,
+    uint8_t right_x,
+    uint8_t right_y
+);
 
 void ui_draw_current_test_page(
     test_page_t page,

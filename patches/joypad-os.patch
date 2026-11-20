@@ -82,6 +82,41 @@ index c801d8c4..e3da4de0 100644
  }
  
  bool display_i2c_init(const display_i2c_config_t* config) {
+diff --git a/src/native/host/psx/psx_host.c b/src/native/host/psx/psx_host.c
+index e611229e..606731e4 100644
+--- a/src/native/host/psx/psx_host.c
++++ b/src/native/host/psx/psx_host.c
+@@ -64,7 +64,19 @@ static uint8_t pin_clk = PSX_PIN_CLK;
+ static uint8_t pin_att = PSX_PIN_ATT;
+ static uint8_t pin_dat = PSX_PIN_DAT;
+ 
+-static PIO       psx_pio = pio0;
++// PIO block for the poll engine. Builds that already use pio0 for something
++// else (e.g. another Joybus host) can move it with -DPSX_PIO=pio1 / pio2.
++#ifndef PSX_PIO
++#define PSX_PIO pio0
++#endif
++
++// Map the board's user button to A1 (Guide/PS). Set to 0 on boards where
++// BUTTON_USER_GPIO isn't a real button, or it reads whatever drives that pin.
++#ifndef PSX_USER_BUTTON_A1
++#define PSX_USER_BUTTON_A1 1
++#endif
++
++static PIO       psx_pio = PSX_PIO;
+ static uint      psx_sm;
+ static int       psx_dma = -1;
+ static uint32_t  psx_rx[PSX_HW_BYTES];   // DMA target: one byte per word (bits 31-24)
+@@ -560,7 +572,9 @@ static void psx_process(const uint8_t* buf) {
+         // -> A1 (Guide/PS) while held. Lets the adapter trigger a Home/PS button
+         // press without a Select+Start or ANALOG-button toggle. Double/triple
+         // clicks still cycle the USB output mode through the button service.
++#if PSX_USER_BUTTON_A1
+         if (button_is_pressed()) buttons |= JP_BUTTON_A1;
++#endif
+ 
+         // Pressure controllers (neGcon) stream every poll so analog pressure
+         // updates continuously, not just when a button bit toggles.
 diff --git a/src/native/host/snes/snes_host.c b/src/native/host/snes/snes_host.c
 index e466ad25..fa84b986 100644
 --- a/src/native/host/snes/snes_host.c

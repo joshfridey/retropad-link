@@ -1,9 +1,11 @@
 # RetroPad Link
 
-Firmware for an RP2350 board that turns original Nintendo controllers into USB
-gamepads, with a built-in controller tester on a small OLED screen.
+Firmware for an RP2350 board that turns original Nintendo and PlayStation
+controllers into USB gamepads, with a built-in controller tester on a small
+OLED screen.
 
-Plug in an **NES, SNES, N64 or GameCube** controller and it shows up on your PC
+Plug in an **NES, SNES, N64, GameCube or PlayStation (PS1 / PS2)** controller
+and it shows up on your PC
 as a USB gamepad. Hold two buttons for three seconds and the screen becomes a
 tester: live button display, joystick wear test, rumble test, and diagnostics
 that catch worn or bouncing buttons.
@@ -21,18 +23,24 @@ Waveshare Core2350B with the wiring described under [Hardware](#hardware).
 
 ## Features
 
-- **Four controller ports:** NES, SNES, N64 and GameCube.
+- **Five controller ports:** NES, SNES, N64, GameCube and PlayStation. The
+  PlayStation port takes PS1 and PS2 pads: digital pads, DualShock and
+  DualShock 2 (switched into analog mode automatically).
 - **One controller at a time.** The firmware checks the ports in the order
-  SNES → NES → N64 → GameCube and uses the first controller it finds. Unplug
+  SNES → NES → N64 → GameCube → PlayStation and uses the first controller it
+  finds. Unplug
   it and it goes back to scanning.
 - **USB gamepad output** via JoypadOS. It appears as *JoypadOS (SInput)*.
 - **Controller tester** on a 128×64 OLED:
-  - **Live:** every button lights up as you press it. N64 and GameCube also show
-    their sticks (and GameCube its analog triggers).
-  - **Joystick test** (N64, GameCube main stick and C-stick): traces the
+  - **Live:** every button lights up as you press it. N64, GameCube and
+    PlayStation also show their sticks (and GameCube its analog triggers);
+    PlayStation face buttons are drawn as △ ○ ✕ □.
+  - **Joystick test** (N64; GameCube main stick and C-stick; PlayStation left
+    and right sticks): traces the
     stick's outline, measures how far it reaches in each direction and where it
     rests, and rates it GOOD / FAIR / WORN / OFF CENTER.
-  - **Rumble test** (GameCube): hold A to run the motor.
+  - **Rumble test** (GameCube and PlayStation): hold A (GameCube) or Cross
+    (PlayStation) to run the motors.
   - **Diagnostics:** counts which buttons have been pressed, and flags
     *chatter* (a button bouncing on and off) and *dropouts* (a held button
     briefly letting go), the usual signs of worn contacts.
@@ -50,7 +58,8 @@ Waveshare Core2350B with the wiring described under [Hardware](#hardware).
 
 All controllers run on **3.3 V**. Do not power the NES, SNES or N64 pads from
 5 V: their data lines would then send 5 V into the RP2350, which isn't 5 V
-tolerant. The only 5 V connection is the GameCube rumble motor.
+tolerant. The only 5 V connections are the GameCube and PlayStation rumble
+motors.
 
 Pins are set in [`src/config.h`](src/config.h).
 
@@ -103,6 +112,24 @@ pull-up of about 1 kΩ from GPIO29 to 3V3 is the usual fix.
 Connect **every** ground on the GameCube socket (pins 3, 4 and 5). Detection
 did not work until all of them were wired: the controller may not join its grounds internally.
 
+**PlayStation (PS1 / PS2)**
+
+| Socket pin | Signal | RP2350 |
+|---|---|---|
+| 1 | Data | GPIO22, plus a 10 kΩ pull-up to 3V3 |
+| 2 | Command | GPIO19 |
+| 3 | Rumble motor power | 5V (VBUS) |
+| 4 | Ground | GND |
+| 5 | Logic power | 3V3 |
+| 6 | Attention | GPIO21 |
+| 7 | Clock | GPIO20 |
+| 8 | — | not connected |
+| 9 | Acknowledge | not connected (not needed) |
+
+A console feeds the rumble motors about 7.6 V on pin 3. 5 V runs them a little
+weaker; a 5 V → 7.5 V boost module gives full strength. The firmware needs Clock
+and Attention on neighbouring GPIOs, Clock first.
+
 **OLED**
 
 | OLED pin | RP2350 |
@@ -118,8 +145,8 @@ OLED modules differ in pin order, so wire by the labels on yours.
 continuity mode against a known pinout. Swapping power and ground can damage a
 controller. Wire colours on extension cables are not standardised.
 
-A large capacitor (220–470 µF) across 5V and GND near the GameCube socket helps
-if the board resets when the rumble motor starts.
+A large capacitor (220–470 µF) across 5V and GND near the GameCube and
+PlayStation sockets helps if the board resets when a rumble motor starts.
 
 ## Using it
 
@@ -131,7 +158,7 @@ if the board resets when the rumble motor starts.
 
 Hold **Start + Select** for 3 seconds (**Start + Z** on N64 and GameCube).
 
-| Action | NES / SNES | N64 / GameCube |
+| Action | NES / SNES / PlayStation | N64 / GameCube |
 |---|---|---|
 | Next page | Select + Right | Z + Right |
 | Previous page | Select + Left | Z + Left |
@@ -147,6 +174,10 @@ show how many pages there are and which one you're on.
 | NES, SNES | Live → Diagnostics → Raw |
 | N64 | Live → Stick → Diagnostics → Raw |
 | GameCube | Live → Stick → C-Stick → Rumble → Diagnostics → Raw |
+| PlayStation | Live → Left Stick → Right Stick → Rumble → Diagnostics → Raw |
+
+PlayStation pads get the stick and Rumble pages even when they have no sticks
+or motors (original PS1 digital pads); those pages just stay still.
 
 **Joystick test:** rotate the stick slowly around its full edge a few times, then
 let go so it can record where it rests. The rating appears once every direction
@@ -159,8 +190,8 @@ console uses.
 *CHATTER* means a button switched on and off 4 or more times within 30 ms.
 *DROPOUT* means a button held for at least 0.3 s let go for under 30 ms.
 
-**Rumble:** hold A. The motor stops when you release A, change page, or unplug
-the controller.
+**Rumble:** hold A (GameCube) or Cross (PlayStation). The motors stop when you
+let go, change page, or unplug the controller.
 
 ## Building
 
@@ -198,7 +229,10 @@ RetroPad Link carries one in [`boards/`](boards/), and
 `PICO_BOARD_HEADER_DIRS` points the build at it.
 
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
-can't hang the firmware, and `snes_host_get_buttons()`.
+can't hang the firmware, and `snes_host_get_buttons()`. It also gives the
+PS1 / PS2 driver two build switches, which RetroPad Link uses to put it on the
+RP2350's third PIO block (`PSX_PIO`) and to stop it reading GPIO7, the SNES
+data line, as a button (`PSX_USER_BUTTON_A1`).
 
 Configure and build:
 
@@ -253,7 +287,7 @@ src/
   controller_state.c     Latest routed input event
   controllers/
     controller_manager.c Detects which controller is plugged in
-    nes.c snes.c n64.c gamecube.c
+    nes.c snes.c n64.c gamecube.c playstation.c
                          One adapter per controller (init / task / connected)
     gc/                  GameCube driver (modified copy, see Credits)
   *_logo.h               OLED logo bitmaps
@@ -263,8 +297,9 @@ src/
 
 - GameCube joystick ratings use provisional thresholds and still need tuning
   against known-good controllers.
-- PS1 / PS2 support is planned. JoypadOS has a driver for it; it needs the
-  RP2350's third PIO block.
+- PlayStation joystick ratings likewise use provisional thresholds.
+- The PlayStation connected screen shows a text placeholder until a logo is
+  added.
 
 ## Releasing
 
@@ -295,9 +330,9 @@ was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 ## Credits
 
 - **[JoypadOS](https://github.com/joypad-ai/joypad-os)** by Robert Dale Smith,
-  Apache License 2.0. RetroPad Link builds on it, and
-  `src/controllers/gc/gc_host.c` is a modified copy of its GameCube host
-  driver. `patches/joypad-os.patch` modifies JoypadOS files.
+  Apache License 2.0. RetroPad Link builds on it, including its PS1 / PS2
+  host driver. `src/controllers/gc/gc_host.c` is a modified copy of its
+  GameCube host driver, and `patches/joypad-os.patch` modifies JoypadOS files.
 - **[joybus-pio](https://github.com/JonnyHaystack/joybus-pio)** by
   JonnyHaystack, GNU LGPL 3.0. `src/controllers/gc/GamecubeController.c` is a modified
   copy of its GameCube controller reader, and stays under the LGPL 3.0.
@@ -310,5 +345,6 @@ for the joystick test, a handshake that tries several probe commands and bit
 rates, and a different PIO block assignment.
 
 Nintendo, NES, SNES, Nintendo 64 and GameCube are trademarks of Nintendo.
+PlayStation and DualShock are trademarks of Sony Interactive Entertainment.
 "Joypad" is a trademark of Robert Dale Smith. This project is not affiliated
-with or endorsed by either.
+with or endorsed by any of them.
