@@ -7,6 +7,7 @@
 #include "nes_logo.h"
 #include "n64_logo.h"
 #include "gc_cube_logo.h"
+#include "playstation_logo.h"
 #include "controllers/snes.h"
 
 #include "core/buttons.h"
@@ -1486,11 +1487,12 @@ void ui_draw_playstation_connected_screen(void)
     display_clear();
 
 
-    // Placeholder until a PlayStation logo bitmap is added.
-    display_text_large(
-        22,
-        6,
-        "PS1/PS2"
+    display_bitmap(
+        0,
+        2,
+        playstation_logo,
+        PLAYSTATION_LOGO_W,
+        PLAYSTATION_LOGO_H
     );
 
 
