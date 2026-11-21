@@ -237,9 +237,16 @@ RetroPad Link carries one in [`boards/`](boards/), and
 The patch adds the SH1106 OLED driver, an I2C write timeout so a missing screen
 can't hang the firmware, and `snes_host_get_buttons()`.
 
-The GameCube and PS1 / PS2 drivers are not patched: RetroPad Link builds its
-own modified copies (`src/controllers/gc/`, `src/controllers/psx/`) instead of
-the JoypadOS files. The PS1 / PS2 copy changes:
+The N64, GameCube and PS1 / PS2 drivers are not patched: RetroPad Link builds
+its own modified copies (`src/controllers/n64/`, `src/controllers/gc/`,
+`src/controllers/psx/`) instead of the JoypadOS files.
+
+The N64 and GameCube copies share one joybus PIO program: the N64 copy reports
+where it loaded the program, and the GameCube copy runs on another state
+machine in the same PIO block instead of loading a second copy. That leaves
+the RP2350's second PIO block (pio1) free for a USB host port.
+
+The PS1 / PS2 copy changes:
 
 - **Rumble fix.** The JoypadOS driver sends the motor levels in poll bytes 2
   and 3, but DualShock pads read them from bytes 3 and 4 (byte 2 is the
@@ -308,6 +315,7 @@ src/
     controller_manager.c Detects which controller is plugged in
     nes.c snes.c n64.c gamecube.c playstation.c
                          One adapter per controller (init / task / connected)
+    n64/                 N64 driver (modified copy, see Credits)
     gc/                  GameCube driver (modified copy, see Credits)
     psx/                 PS1 / PS2 driver (modified copy, see Credits)
   *_logo.h               OLED logo bitmaps
@@ -351,8 +359,9 @@ was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 - **[JoypadOS](https://github.com/joypad-ai/joypad-os)** by Robert Dale Smith,
   Apache License 2.0. RetroPad Link builds on it.
-  `src/controllers/gc/gc_host.c` and `src/controllers/psx/` are modified
-  copies of its GameCube and PS1 / PS2 host drivers, and
+  `src/controllers/n64/`, `src/controllers/gc/gc_host.c` and
+  `src/controllers/psx/` are modified copies of its N64, GameCube and
+  PS1 / PS2 host drivers, and
   `patches/joypad-os.patch` modifies JoypadOS files.
 - **[joybus-pio](https://github.com/JonnyHaystack/joybus-pio)** by
   JonnyHaystack, GNU LGPL 3.0. `src/controllers/gc/GamecubeController.c` is a modified

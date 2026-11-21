@@ -4,8 +4,8 @@
 // input events to the router.
 //
 // Modified copy of JoypadOS src/native/host/gc/gc_host.c (Apache License 2.0,
-// https://github.com/joypad-ai/joypad-os). RetroPad Link changes: joybus on
-// PIO1 instead of PIO0, and the raw stick values are kept for the joystick
+// https://github.com/joypad-ai/joypad-os). RetroPad Link changes: joybus
+// shares the N64 host's program copy in PIO0, and the raw stick values are kept for the joystick
 // test (retropad_gc_get_raw_sticks).
 
 #include "gc_host.h"
@@ -13,6 +13,7 @@
 #include "gamecube_definitions.h"
 #include "joybus.h"
 #include "gba_multiboot.h"
+#include "controllers/n64/n64_host_retropad.h"
 #include "usb/usbd/usbd.h"
 #include "core/router/router.h"
 #include "core/input_event.h"
@@ -214,12 +215,16 @@ void gc_host_init_pin(uint8_t data_pin)
            data_pin, gpio_get(data_pin));
 
     // Initialize GameCube controller on port 0
-    // RetroPad Link: PIO1. PIO0 already holds the WS2812 LED program and the
-    // N64 host's joybus copy; a second 22-instruction joybus program does not
-    // fit in PIO0's 32-instruction memory.
+    // RetroPad Link: PIO0, on its own state machine, running the joybus
+    // program the N64 host already loaded there (N64 and GameCube use the
+    // same program; each state machine has its own clock divider). This
+    // keeps PIO1 completely free for the USB host port. If the N64 host was
+    // not initialized first, the program is loaded here instead.
     GamecubeController_init(&gc_controllers[0], data_pin, GC_POLLING_RATE,
-                            pio1, -1, -1);
-    printf("[gc_host]   joybus loaded at PIO1 offset %d\n", GamecubeController_GetOffset(&gc_controllers[0]));
+                            pio0, -1, retropad_n64_joybus_offset());
+    printf("[gc_host]   joybus at PIO0 offset %d, SM %u\n",
+           GamecubeController_GetOffset(&gc_controllers[0]),
+           gc_controllers[0]._port.sm);
 
     // Initialize state tracking
     for (int i = 0; i < GC_MAX_PORTS; i++) {

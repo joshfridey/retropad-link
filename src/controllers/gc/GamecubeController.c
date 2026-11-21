@@ -11,12 +11,15 @@
  * Modified copy of JoypadOS's lib/joybus-pio/src/GamecubeController.c. RetroPad
  * Link changes: the handshake rotates through probe/reset commands at 4 us and
  * 5 us per bit until one gets a reply, and the plug-in origin is kept for the
- * joystick test (retropad_gc_get_origin_sticks).
+ * joystick test (retropad_gc_get_origin_sticks). A non-negative offset passed
+ * to GamecubeController_init() means the joybus program is already loaded
+ * there (by the N64 host) and is shared rather than loaded a second time.
  */
 
 #include "GamecubeController.h"
 #include "gamecube_definitions.h"
 #include "joybus.h"
+#include "joybus.pio.h"
 
 #include <stdio.h>
 #include <hardware/clocks.h>
@@ -152,7 +155,22 @@ void GamecubeController_init(GamecubeController* controller, uint pin, uint poll
 {
     memset(controller, 0, sizeof(GamecubeController));
 
-    joybus_port_init(&controller->_port, pin, pio, sm, offset);
+    if (offset >= 0) {
+        // Share a joybus program another driver already loaded at this
+        // offset. joybus_port_init() would try to load a second copy.
+        joybus_port_t* port = &controller->_port;
+        port->sm = (sm < 0) ? (uint)pio_claim_unused_sm(pio, true) : (uint)sm;
+        if (sm >= 0) {
+            pio_sm_claim(pio, (uint)sm);
+        }
+        port->pin = pin;
+        port->pio = pio;
+        port->offset = (uint)offset;
+        port->config = joybus_program_get_config(pio, port->sm, port->offset, pin);
+        joybus_port_reset(port);
+    } else {
+        joybus_port_init(&controller->_port, pin, pio, sm, offset);
+    }
     controller->_polling_period_us = 1000000 / polling_rate;
     controller->_next_poll = get_absolute_time();
     controller->_initialized = false;

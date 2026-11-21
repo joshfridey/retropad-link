@@ -34,8 +34,10 @@ add_executable(joypad_retropad_link)
 #
 # GameCube host on GPIO29 (see RETROPAD_GAMECUBE_DATA_GPIO in config.h).
 #
-# PlayStation host: N64 uses pio0 and GameCube pio1, so its poll engine goes
-# on pio2. The board's "user button" defaults to GPIO7 (SNES data), so the
+# PIO blocks: pio0 holds the WS2812 LED program and one joybus program shared
+# by the N64 and GameCube hosts (separate state machines). pio1 is kept free
+# for a PIO-USB host port, which needs a whole block. PlayStation's poll
+# engine goes on pio2. The board's "user button" defaults to GPIO7 (SNES data), so the
 # driver's user-button -> PS button mapping is switched off.
 #
 
@@ -69,8 +71,8 @@ target_sources(
     # Native controller hosts
     ${SNES_HOST_SOURCES}
 
-    # N64 host
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64/n64_host.c
+    # N64 host - RetroPad-local copy of the JoypadOS driver
+    ${RETROPAD_LINK_DIR}/src/controllers/n64/n64_host.c
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/N64Controller.c
 
     # GameCube host - RetroPad-local copy of the JoypadOS driver
@@ -119,6 +121,9 @@ target_include_directories(
 
     # USB device
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+
+    # N64 (n64_host.h; the driver itself is RetroPad Link's copy)
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64
 
     # SNES
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/snes
