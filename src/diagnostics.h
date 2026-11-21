@@ -13,6 +13,7 @@ typedef enum {
     DIAGNOSTICS_LAYOUT_GAMECUBE,    // 12: D-pad, A B X Y, Z, L R, Start
     DIAGNOSTICS_LAYOUT_NES,         //  8: D-pad, B A, Select Start
     DIAGNOSTICS_LAYOUT_PLAYSTATION, // 16: D-pad, 4 face, L1 R1 L2 R2, L3 R3, Select Start
+    DIAGNOSTICS_LAYOUT_PLAYSTATION_DIGITAL, // 14: as above without L3 R3
 } diagnostics_layout_t;
 
 

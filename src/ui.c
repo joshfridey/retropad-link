@@ -1642,6 +1642,7 @@ static void ui_draw_ps_stick(
 
 void ui_draw_playstation_live_screen(
     uint32_t buttons,
+    bool sticks,
     uint8_t left_x,
     uint8_t left_y,
     uint8_t right_x,
@@ -1679,10 +1680,19 @@ void ui_draw_playstation_live_screen(
     ui_draw_button(12, 40, buttons, JP_BUTTON_DD, "[D]", " D ");
 
 
-    // Sticks (L3 / R3 shown as a double outline)
+    // Sticks (L3 / R3 shown as a double outline), or DIGITAL when the pad
+    // has none in its current mode
 
-    ui_draw_ps_stick(42, 24, 19, left_x, left_y, (buttons & JP_BUTTON_L3) != 0);
-    ui_draw_ps_stick(66, 24, 19, right_x, right_y, (buttons & JP_BUTTON_R3) != 0);
+    if (sticks) {
+
+        ui_draw_ps_stick(42, 24, 19, left_x, left_y, (buttons & JP_BUTTON_L3) != 0);
+        ui_draw_ps_stick(66, 24, 19, right_x, right_y, (buttons & JP_BUTTON_R3) != 0);
+    }
+
+    else {
+
+        display_text(43, 30, "DIGITAL");
+    }
 
 
     // Face buttons (JoypadOS: Cross=B1, Circle=B2, Square=B3, Triangle=B4)

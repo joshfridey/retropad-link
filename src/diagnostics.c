@@ -95,6 +95,26 @@ static const button_definition_t playstation_buttons[] = {
 };
 
 
+// Digital PlayStation pads (and a DualShock with its ANALOG light off) have
+// no L3 / R3.
+static const button_definition_t playstation_digital_buttons[] = {
+    { JP_BUTTON_DU, "UP" },
+    { JP_BUTTON_DD, "DOWN" },
+    { JP_BUTTON_DL, "LEFT" },
+    { JP_BUTTON_DR, "RIGHT" },
+    { JP_BUTTON_B1, "CROSS" },
+    { JP_BUTTON_B2, "CIRCLE" },
+    { JP_BUTTON_B3, "SQUARE" },
+    { JP_BUTTON_B4, "TRIANGLE" },
+    { JP_BUTTON_L1, "L1" },
+    { JP_BUTTON_R1, "R1" },
+    { JP_BUTTON_L2, "L2" },
+    { JP_BUTTON_R2, "R2" },
+    { JP_BUTTON_S1, "SELECT" },
+    { JP_BUTTON_S2, "START" },
+};
+
+
 // Mapping from native/host/n64/n64_host.c map_n64_to_jp().
 static const button_definition_t n64_buttons[] = {
     { JP_BUTTON_DU, "UP" },
@@ -168,6 +188,12 @@ static const diagnostics_layout_definition_t layouts[] = {
     [DIAGNOSTICS_LAYOUT_PLAYSTATION] = {
         .buttons = playstation_buttons,
         .count = sizeof(playstation_buttons) / sizeof(playstation_buttons[0]),
+        .reset_hint = "RST:ST+SEL+DOWN",
+    },
+
+    [DIAGNOSTICS_LAYOUT_PLAYSTATION_DIGITAL] = {
+        .buttons = playstation_digital_buttons,
+        .count = sizeof(playstation_digital_buttons) / sizeof(playstation_digital_buttons[0]),
         .reset_hint = "RST:ST+SEL+DOWN",
     },
 };

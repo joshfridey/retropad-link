@@ -11,6 +11,7 @@
 #include "config.h"
 
 #include "native/host/psx/psx_host.h"
+#include "controllers/psx/psx_host_retropad.h"
 #include "core/services/players/feedback.h"
 
 
@@ -46,6 +47,28 @@ void retropad_playstation_task(void)
 bool retropad_playstation_is_connected(void)
 {
     return psx_host_is_connected();
+}
+
+
+// ============================================================================
+// CONTROLLER MODE
+// ============================================================================
+
+bool retropad_playstation_has_sticks(void)
+{
+    uint8_t id = psx_host_get_pad_id();
+
+    return id == 0x73 || id == 0x79 || id == 0x53;
+}
+
+
+bool retropad_playstation_has_rumble(void)
+{
+    // DualShock / DualShock 2 in analog mode. A digital pad has no motors,
+    // and a DualShock in digital mode drops its rumble setup.
+    uint8_t id = psx_host_get_pad_id();
+
+    return id == 0x73 || id == 0x79;
 }
 
 

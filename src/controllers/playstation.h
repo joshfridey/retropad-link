@@ -25,6 +25,16 @@ void retropad_playstation_task(void);
 bool retropad_playstation_is_connected(void);
 
 
+// True while the pad reports analog sticks (DualShock analog mode, or an
+// early Dual Analog). False for original digital pads and for a DualShock
+// whose ANALOG light is off.
+bool retropad_playstation_has_sticks(void);
+
+
+// True while the pad can rumble: a DualShock in analog mode.
+bool retropad_playstation_has_rumble(void);
+
+
 // Run both DualShock rumble motors at full strength, or stop them.
 //
 // The JoypadOS PSX host reads its motor levels from player 0's feedback

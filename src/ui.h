@@ -76,8 +76,11 @@ void ui_draw_rumble_screen(
 void ui_draw_playstation_connected_screen(void);
 
 // Sticks are the PSX host's raw 0-255 values (128 = centre, 0 = up / left).
+// sticks = false (digital pad, or ANALOG light off) shows DIGITAL in place
+// of the stick boxes.
 void ui_draw_playstation_live_screen(
     uint32_t buttons,
+    bool sticks,
     uint8_t left_x,
     uint8_t left_y,
     uint8_t right_x,

@@ -178,8 +178,11 @@ show how many pages there are and which one you're on.
 | GameCube | Live → Stick → C-Stick → Rumble → Diagnostics → Raw |
 | PlayStation | Live → Left Stick → Right Stick → Rumble → Diagnostics → Raw |
 
-PlayStation pads get the stick and Rumble pages even when they have no sticks
-or motors (original PS1 digital pads); those pages just stay still.
+The PlayStation pages follow the controller's mode. Original PS1 digital pads,
+and a DualShock with its ANALOG light off, get no stick or Rumble pages: the
+LIVE page shows DIGITAL in place of the sticks, and Diagnostics leaves out
+L3 / R3. Pressing ANALOG on a DualShock adds or removes those pages straight
+away.
 
 **Joystick test:** rotate the stick slowly around its full edge a few times, then
 let go so it can record where it rests. The rating appears once every direction

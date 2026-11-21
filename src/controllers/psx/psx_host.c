@@ -4,8 +4,9 @@
 // https://github.com/joypad-ai/joypad-os). RetroPad Link changes: the motor
 // levels go in poll bytes 3 and 4 (JoypadOS sends them in 2 and 3, so DualShock
 // rumble never runs), the rumble map is checked and re-sent when rumble starts,
-// and build switches for the PIO block (PSX_PIO), the board user button
-// (PSX_USER_BUTTON_A1) and the ANALOG button behaviour (PSX_KEEP_ANALOG).
+// build switches for the PIO block (PSX_PIO), the board user button
+// (PSX_USER_BUTTON_A1) and the ANALOG button behaviour (PSX_KEEP_ANALOG), and
+// psx_host_get_pad_id() (psx_host_retropad.h).
 //
 // The PSX SIO transaction is clocked entirely in hardware by a PIO state machine
 // (see psx.pio) and read by a DMA channel, so the CPU never bit-bangs and never
@@ -19,6 +20,7 @@
 //   buf[5..8] (analog only):  right X, right Y, left X, left Y
 
 #include "psx_host.h"
+#include "psx_host_retropad.h"
 #include "core/router/router.h"
 #include "core/input_event.h"
 #include "core/buttons.h"
@@ -740,6 +742,10 @@ static void psx_process(const uint8_t* buf) {
 
 bool psx_host_is_connected(void) {
     return connected;
+}
+
+uint8_t psx_host_get_pad_id(void) {
+    return connected ? last_real_id : 0xFF;
 }
 
 

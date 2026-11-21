@@ -124,7 +124,9 @@ static uint32_t rumble_test_button(retropad_controller_type_t active)
             return JP_BUTTON_B2;    // A
 
         case RETROPAD_CONTROLLER_PLAYSTATION:
-            return JP_BUTTON_B1;    // Cross
+            return retropad_playstation_has_rumble()
+                ? JP_BUTTON_B1      // Cross
+                : 0;
 
         default:
             return 0;
@@ -137,6 +139,34 @@ static const char* rumble_test_button_name(retropad_controller_type_t active)
     return active == RETROPAD_CONTROLLER_PLAYSTATION
         ? "CROSS"
         : "A";
+}
+
+
+// Diagnostics button list for the active controller. PlayStation pads have
+// L3 / R3 only while they report analog sticks.
+static diagnostics_layout_t retropad_diagnostics_layout(
+    retropad_controller_type_t active
+)
+{
+    switch (active) {
+
+        case RETROPAD_CONTROLLER_NES:
+            return DIAGNOSTICS_LAYOUT_NES;
+
+        case RETROPAD_CONTROLLER_N64:
+            return DIAGNOSTICS_LAYOUT_N64;
+
+        case RETROPAD_CONTROLLER_GAMECUBE:
+            return DIAGNOSTICS_LAYOUT_GAMECUBE;
+
+        case RETROPAD_CONTROLLER_PLAYSTATION:
+            return retropad_playstation_has_sticks()
+                ? DIAGNOSTICS_LAYOUT_PLAYSTATION
+                : DIAGNOSTICS_LAYOUT_PLAYSTATION_DIGITAL;
+
+        default:
+            return DIAGNOSTICS_LAYOUT_SNES;
+    }
 }
 
 
@@ -336,6 +366,7 @@ static void retropad_draw_live_screen(uint32_t buttons)
 
         ui_draw_playstation_live_screen(
             buttons,
+            retropad_playstation_has_sticks(),
             controller_state_get_analog(ANALOG_LX),
             controller_state_get_analog(ANALOG_LY),
             controller_state_get_analog(ANALOG_RX),
@@ -370,7 +401,9 @@ static const joystick_profile_t* retropad_stick_profile(
             return &joystick_profile_gc_main;
 
         case RETROPAD_CONTROLLER_PLAYSTATION:
-            return &joystick_profile_psx_left;
+            return retropad_playstation_has_sticks()
+                ? &joystick_profile_psx_left
+                : NULL;
 
         default:
             return NULL;
@@ -389,7 +422,9 @@ static const joystick_profile_t* retropad_second_stick_profile(
             return &joystick_profile_gc_cstick;
 
         case RETROPAD_CONTROLLER_PLAYSTATION:
-            return &joystick_profile_psx_right;
+            return retropad_playstation_has_sticks()
+                ? &joystick_profile_psx_right
+                : NULL;
 
         default:
             return NULL;
@@ -1002,6 +1037,83 @@ void app_task(void)
 
 
     // ========================================================================
+    // PLAYSTATION MODE CHANGES
+    // ========================================================================
+    //
+    // A DualShock's sticks and rumble come and go with its ANALOG light, and
+    // original PS1 pads never have them. Show only the pages the pad has in
+    // its current mode.
+
+    static int8_t last_ps_features =
+        -1;
+
+
+    if (
+        connected &&
+        playstation_active
+    ) {
+
+        int8_t ps_features =
+            (retropad_playstation_has_sticks() ? 1 : 0) |
+            (retropad_playstation_has_rumble() ? 2 : 0);
+
+
+        if (ps_features != last_ps_features) {
+
+            last_ps_features =
+                ps_features;
+
+
+            // While waiting, the connect step below sets the pages.
+            if (ui_state != UI_WAITING) {
+
+                joystick_diag_reset(
+                    retropad_stick_profile(active_controller),
+                    retropad_second_stick_profile(active_controller)
+                );
+
+                diagnostics_set_layout(
+                    retropad_diagnostics_layout(active_controller)
+                );
+
+                ui_set_optional_pages(
+                    retropad_stick_profile(active_controller) != NULL,
+                    retropad_second_stick_profile(active_controller) != NULL,
+                    rumble_test_button(active_controller) != 0
+                );
+
+
+                if (!ui_page_available(test_page)) {
+
+                    test_page =
+                        TEST_PAGE_LIVE;
+                }
+
+
+                last_buttons =
+                    0xFFFFFFFF;
+
+
+                if (ui_state == UI_TESTING) {
+
+                    retropad_draw_current_page(
+                        test_page,
+                        buttons,
+                        diag_ticker_offset
+                    );
+                }
+            }
+        }
+    }
+
+    else {
+
+        last_ps_features =
+            -1;
+    }
+
+
+    // ========================================================================
     // JOYSTICK DIAGNOSTICS
     // ========================================================================
     //
@@ -1115,15 +1227,7 @@ void app_task(void)
 
         // Test the buttons this controller actually has. Also resets.
         diagnostics_set_layout(
-            active_controller == RETROPAD_CONTROLLER_N64
-                ? DIAGNOSTICS_LAYOUT_N64
-                : active_controller == RETROPAD_CONTROLLER_GAMECUBE
-                    ? DIAGNOSTICS_LAYOUT_GAMECUBE
-                    : active_controller == RETROPAD_CONTROLLER_NES
-                        ? DIAGNOSTICS_LAYOUT_NES
-                        : active_controller == RETROPAD_CONTROLLER_PLAYSTATION
-                            ? DIAGNOSTICS_LAYOUT_PLAYSTATION
-                            : DIAGNOSTICS_LAYOUT_SNES
+            retropad_diagnostics_layout(active_controller)
         );
 
         joystick_diag_reset(
