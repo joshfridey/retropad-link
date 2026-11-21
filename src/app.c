@@ -1,6 +1,7 @@
 // app.c - RetroPad Link application entry point
 
 #include "app.h"
+#include "config.h"
 #include "version.h"
 #include "profiles.h"
 #include "diagnostics.h"
@@ -26,6 +27,7 @@
 #include "core/buttons.h"
 
 #include "usb/usbd/usbd.h"
+#include "usb/usbh/usbh.h"
 
 #include "core/services/leds/leds.h"
 #include "core/services/display/display.h"
@@ -33,6 +35,7 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "hardware/dma.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,14 +59,19 @@
 
 const InputInterface** app_get_input_interfaces(uint8_t* count)
 {
-    static const InputInterface* input_interfaces[1];
+    static const InputInterface* input_interfaces[2];
 
 
     input_interfaces[0] =
         retropad_controller_manager_get_input_interface();
 
+    // USB host port (PIO-USB on pio1, D+ on RETROPAD_USB_HOST_DP_GPIO) for
+    // original Xbox and other USB controllers.
+    input_interfaces[1] =
+        &usbh_input_interface;
 
-    *count = 1;
+
+    *count = 2;
 
 
     return input_interfaces;
@@ -641,7 +649,18 @@ void app_init(void)
 
     retropad_gamecube_init();
 
+    // PIO-USB always uses DMA channel 0 and starts after app_init(), when
+    // JoypadOS initializes the USB host input interface. The PlayStation
+    // driver takes the lowest free channel, so hold channel 0 while it
+    // initializes.
+    dma_channel_claim(0);
+
     retropad_playstation_init();
+
+    dma_channel_unclaim(0);
+
+    // USB host D+ pin (D- is the next GPIO). Read by usbh_init().
+    usbh_set_pio_dp_pin(RETROPAD_USB_HOST_DP_GPIO);
 
 
     // ------------------------------------------------------------------------
@@ -702,6 +721,14 @@ void app_init(void)
 
     router_add_route(
         INPUT_SOURCE_NATIVE_GC,
+        OUTPUT_TARGET_USB_DEVICE,
+        0
+    );
+
+    // USB host port (Xbox OG, etc.) -> USB
+
+    router_add_route(
+        INPUT_SOURCE_USB_HOST,
         OUTPUT_TARGET_USB_DEVICE,
         0
     );

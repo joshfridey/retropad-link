@@ -13,6 +13,7 @@
 //   N64
 //   GameCube
 //   PlayStation (PS1 / PS2)
+//   USB host (original Xbox and other USB controllers)
 //
 // OLED:
 //   1.3" SH1106 128x64 I2C
@@ -127,6 +128,26 @@
 #define RETROPAD_PSX_CLK_GPIO         20
 #define RETROPAD_PSX_ATT_GPIO         21
 #define RETROPAD_PSX_DAT_GPIO         22
+
+
+// ============================================================================
+// USB HOST PORT
+// ============================================================================
+//
+// Software USB host (PIO-USB) on pio1, full speed. D+ and D- must be
+// consecutive GPIOs, D+ first. For an original Xbox controller, cut an
+// extension cable and wire the socket end:
+//
+// Red    = 5V      -> 5V (VBUS)
+// White  = D-      -> GPIO17
+// Green  = D+      -> GPIO16
+// Yellow = detect  -> not connected
+// Black  = Ground  -> GND
+//
+// JoypadOS also drives GPIO18 high as a VBUS-switch enable; leave it
+// unconnected.
+
+#define RETROPAD_USB_HOST_DP_GPIO     16
 
 
 // ============================================================================

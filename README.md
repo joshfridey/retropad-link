@@ -244,7 +244,9 @@ its own modified copies (`src/controllers/n64/`, `src/controllers/gc/`,
 The N64 and GameCube copies share one joybus PIO program: the N64 copy reports
 where it loaded the program, and the GameCube copy runs on another state
 machine in the same PIO block instead of loading a second copy. That leaves
-the RP2350's second PIO block (pio1) free for a USB host port.
+the RP2350's second PIO block (pio1) free for the USB host port, which runs
+JoypadOS's PIO-USB host (D+ GPIO16, D- GPIO17) and its USB controller drivers,
+including the original Xbox controller.
 
 The PS1 / PS2 copy changes:
 
@@ -267,10 +269,15 @@ cmake -S joypad-os/src -B retropad-link/build -G "Unix Makefiles" \
   -DPICO_BOARD=waveshare_core2350b \
   -DPICO_BOARD_HEADER_DIRS="$PWD/retropad-link/boards" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DPICO_TINYUSB_PATH="$PWD/joypad-os/src/lib/tinyusb" \
   -DCMAKE_PROJECT_INCLUDE="$PWD/retropad-link/retropad_hook.cmake"
 
 make -C retropad-link/build -j"$(nproc)" joypad_retropad_link
 ```
+
+`PICO_TINYUSB_PATH` makes the Pico SDK use JoypadOS's TinyUSB (the same
+setting JoypadOS's own Makefile exports) instead of the older copy bundled
+with the SDK, which can't build the USB host drivers.
 
 The firmware is `retropad-link/build/joypad_retropad_link.uf2`.
 

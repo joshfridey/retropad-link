@@ -47,7 +47,13 @@ target_compile_definitions(
 
     CONFIG_SNES2USB=1
     CONFIG_USB=1
-    DISABLE_USB_HOST=1
+
+    # USB host port: PIO-USB on rhport 1 (pins set by app_init() from
+    # RETROPAD_USB_HOST_DP_GPIO in config.h). The native USB port stays the
+    # USB device to the PC. TinyUSB's board file (tinyusb_board) needs the
+    # D+ pin as a define to compile; keep it equal to the config.h value.
+    BOARD_TUH_RHPORT=1
+    PICO_DEFAULT_PIO_USB_DP_PIN=16
 
     GC_PIN_DATA=29
 
@@ -67,6 +73,9 @@ target_sources(
 
     ${CORE_SOURCES}
     ${USB_DEVICE_SOURCES}
+
+    # USB host (PIO-USB): HID and XInput drivers, including original Xbox
+    ${USB_HOST_SOURCES}
 
     # Native controller hosts
     ${SNES_HOST_SOURCES}
@@ -157,6 +166,10 @@ target_link_libraries(
 
     tinyusb_device
     tinyusb_board
+
+    tinyusb_host
+    tinyusb_pico_pio_usb
+    xinput_host
 )
 
 
@@ -297,7 +310,9 @@ message(STATUS "RetroPad Link: target ready")
 # ============================================================================
 # RETROPAD LINK STDIO
 # ============================================================================
-# Debug output goes over USB serial. UART stdio stays off: waveshare_core2350b
-# defaults UART TX/RX to GPIO12/13.
+# UART stdio stays off: waveshare_core2350b defaults UART TX/RX to GPIO12/13.
+# The SDK's USB stdio is off too: it disables itself whenever TinyUSB host is
+# linked (the USB host port). printf output goes to JoypadOS's own log on its
+# USB serial (CDC) port instead.
 pico_enable_stdio_uart(joypad_retropad_link 0)
-pico_enable_stdio_usb(joypad_retropad_link 1)
+pico_enable_stdio_usb(joypad_retropad_link 0)

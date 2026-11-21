@@ -69,6 +69,7 @@ jobs:
             -DPICO_BOARD="$PICO_BOARD" \
             -DPICO_BOARD_HEADER_DIRS="$GITHUB_WORKSPACE/retropad-link/boards" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_TINYUSB_PATH="$GITHUB_WORKSPACE/joypad-os/src/lib/tinyusb" \
             -DCMAKE_PROJECT_INCLUDE="$GITHUB_WORKSPACE/retropad-link/retropad_hook.cmake"
 
       - name: Build
