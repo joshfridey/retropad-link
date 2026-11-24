@@ -595,7 +595,10 @@ static void retropad_draw_current_page(
 
 void app_init(void)
 {
-    set_sys_clock_khz(130000, true);
+    // 120 MHz: PIO-USB (USB host port) needs a multiple of 12 MHz for clean
+    // USB bit timing; at 130 MHz many host transfers failed. The joybus and
+    // PlayStation drivers derive their timing from the actual clock.
+    set_sys_clock_khz(120000, true);
     stdio_init_all();
 
 

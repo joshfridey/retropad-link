@@ -107,6 +107,7 @@ target_sources(
     ${RETROPAD_LINK_DIR}/src/controllers/playstation.c
     ${RETROPAD_LINK_DIR}/src/controllers/gamecube.c
     ${RETROPAD_LINK_DIR}/src/controllers/controller_manager.c
+    ${RETROPAD_LINK_DIR}/src/usb_host_quirks.c
 
     # Display
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
@@ -168,7 +169,6 @@ target_link_libraries(
     tinyusb_board
 
     tinyusb_host
-    tinyusb_pico_pio_usb
     xinput_host
 )
 
@@ -186,6 +186,15 @@ target_compile_options(
     PRIVATE
 
     -O3
+)
+
+# USB host device fixes (src/usb_host_quirks.c) wrap TinyUSB functions
+# instead of modifying TinyUSB.
+target_link_options(
+    joypad_retropad_link
+    PRIVATE
+
+    -Wl,--wrap=tuh_control_xfer
 )
 
 
@@ -316,3 +325,58 @@ message(STATUS "RetroPad Link: target ready")
 # USB serial (CDC) port instead.
 pico_enable_stdio_uart(joypad_retropad_link 0)
 pico_enable_stdio_usb(joypad_retropad_link 0)
+
+
+# ============================================================================
+# PIO-USB (USB HOST PORT)
+# ============================================================================
+#
+# Same as JoypadOS's tinyusb_pico_pio_usb library, except pio_usb_host.c is
+# RetroPad Link's modified copy (src/usb_host/pio_usb_host.c: more
+# transaction retries for the original Xbox controller's hub).
+
+set(RETROPAD_PIO_USB_PATH "${CMAKE_SOURCE_DIR}/lib/Pico-PIO-USB")
+
+target_sources(
+    joypad_retropad_link
+    PUBLIC
+
+    ${RETROPAD_PIO_USB_PATH}/src/pio_usb.c
+    ${RETROPAD_LINK_DIR}/src/usb_host/pio_usb_host.c
+    ${RETROPAD_PIO_USB_PATH}/src/pio_usb_device.c
+    ${RETROPAD_PIO_USB_PATH}/src/usb_crc.c
+    ${CMAKE_SOURCE_DIR}/lib/tinyusb/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
+)
+
+target_include_directories(
+    joypad_retropad_link
+    PUBLIC
+
+    ${RETROPAD_PIO_USB_PATH}/src
+)
+
+target_compile_definitions(
+    joypad_retropad_link
+    PRIVATE
+
+    PIO_USB_USE_TINYUSB=1
+    PIO_USB_DP_PIN_DEFAULT=16
+)
+
+pico_generate_pio_header(
+    joypad_retropad_link
+
+    "${RETROPAD_PIO_USB_PATH}/src/usb_tx.pio"
+
+    OUTPUT_DIR
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)
+
+pico_generate_pio_header(
+    joypad_retropad_link
+
+    "${RETROPAD_PIO_USB_PATH}/src/usb_rx.pio"
+
+    OUTPUT_DIR
+    "${RETROPAD_PIO_OUTPUT_DIR}"
+)

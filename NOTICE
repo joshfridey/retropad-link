@@ -13,5 +13,9 @@ src/controllers/gc/GamecubeController.c is derived from joybus-pio
 (https://github.com/JonnyHaystack/joybus-pio) and is licensed under the GNU
 Lesser General Public License v3.0, not the Apache License.
 
+src/usb_host/pio_usb_host.c is derived from Pico-PIO-USB
+(https://github.com/sekigon-gonnoc/Pico-PIO-USB), Copyright (c) 2021
+sekigon-gonnoc and Ha Thach, and is licensed under the MIT License.
+
 Firmware builds (.uf2) also contain third-party code, including code under the
 GNU GPL v3.0. See THIRD_PARTY_NOTICES.md.

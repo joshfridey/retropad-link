@@ -325,6 +325,8 @@ src/
     n64/                 N64 driver (modified copy, see Credits)
     gc/                  GameCube driver (modified copy, see Credits)
     psx/                 PS1 / PS2 driver (modified copy, see Credits)
+  usb_host_quirks.c      Fixes for the original Xbox controller's built-in hub
+  usb_host/              PIO-USB host (modified copy, see Credits)
   *_logo.h               OLED logo bitmaps
 ```
 
@@ -333,8 +335,13 @@ src/
 - GameCube joystick ratings use provisional thresholds and still need tuning
   against known-good controllers.
 - PlayStation joystick ratings likewise use provisional thresholds.
-- The PlayStation connected screen shows a text placeholder until a logo is
-  added.
+- The USB host port (original Xbox controller) is experimental. The
+  controller mounts on roughly 1 in 3 plug-ins (replug if it doesn't show
+  up) and works reliably once mounted, but it is not on the OLED or in the
+  controller manager yet. On the breadboard, about two thirds of the packets
+  received from the controller fail their CRC check, and the software USB
+  host (PIO-USB) can only retry. A MAX3421E USB host chip on SPI, which
+  JoypadOS also supports, is the planned fix.
 
 ## Releasing
 
@@ -373,6 +380,9 @@ was built from. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - **[joybus-pio](https://github.com/JonnyHaystack/joybus-pio)** by
   JonnyHaystack, GNU LGPL 3.0. `src/controllers/gc/GamecubeController.c` is a modified
   copy of its GameCube controller reader, and stays under the LGPL 3.0.
+- **[Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB)** by
+  sekigon-gonnoc and Ha Thach, MIT License. `src/usb_host/pio_usb_host.c` is a
+  modified copy (more transaction retries per transfer).
 - **[SNESpad](https://github.com/RobertDaleSmith/SNESpad)**, GNU GPL 3.0. Reads
   the SNES port, via JoypadOS's SNES host. (The NES port uses RetroPad Link's
   own reader, `src/controllers/nes.c`.)
