@@ -8,6 +8,7 @@
 #include "n64_logo.h"
 #include "gc_cube_logo.h"
 #include "playstation_logo.h"
+#include "xbox_logo.h"
 #include "controllers/snes.h"
 
 #include "core/buttons.h"
@@ -1724,10 +1725,12 @@ void ui_draw_xbox_connected_screen(void)
     display_clear();
 
 
-    display_text(
-        25,
-        12,
-        "ORIGINAL XBOX"
+    display_bitmap(
+        0,
+        2,
+        xbox_logo,
+        XBOX_LOGO_W,
+        XBOX_LOGO_H
     );
 
 
