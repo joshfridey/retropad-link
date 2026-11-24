@@ -87,6 +87,21 @@ void ui_draw_playstation_live_screen(
     uint8_t right_y
 );
 
+void ui_draw_xbox_connected_screen(void);
+
+// Sticks and triggers are JoypadOS 0-255 values (sticks 128 = centre, 0 =
+// up / left; triggers 0 = released). LT / RT are drawn pressed from the
+// JP_BUTTON_L2 / R2 bits, which app.c sets from the trigger threshold.
+void ui_draw_xbox_live_screen(
+    uint32_t buttons,
+    uint8_t left_x,
+    uint8_t left_y,
+    uint8_t right_x,
+    uint8_t right_y,
+    uint8_t lt,
+    uint8_t rt
+);
+
 void ui_draw_current_test_page(
     test_page_t page,
     uint32_t buttons,

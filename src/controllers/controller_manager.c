@@ -10,6 +10,7 @@
 //     -> probe N64
 //     -> probe GameCube
 //     -> probe PlayStation
+//     -> check Xbox (USB host port)
 //
 //   SNES detected
 //     -> poll only SNES until disconnected
@@ -26,6 +27,11 @@
 //   PlayStation detected
 //     -> poll only PlayStation until disconnected
 //
+//   Xbox detected
+//     -> stop polling the native ports until it is unplugged. JoypadOS's
+//        USB host reads it as its own input interface, so the manager only
+//        watches its mount state.
+//
 //   disconnect
 //     -> clear USB output
 //     -> return to NONE
@@ -37,6 +43,7 @@
 #include "controllers/n64.h"
 #include "controllers/gamecube.h"
 #include "controllers/playstation.h"
+#include "controllers/xbox.h"
 
 #include "core/router/router.h"
 #include "core/services/players/manager.h"
@@ -91,6 +98,10 @@ set_active_controller(retropad_controller_type_t controller)
 
         case RETROPAD_CONTROLLER_PLAYSTATION:
             printf("[retropad] Controller detected: PlayStation\n");
+            break;
+
+        case RETROPAD_CONTROLLER_XBOX:
+            printf("[retropad] Controller detected: Xbox\n");
             break;
 
         case RETROPAD_CONTROLLER_NONE:
@@ -212,6 +223,21 @@ manager_task(void)
 
                 set_active_controller(
                     RETROPAD_CONTROLLER_PLAYSTATION
+                );
+
+                return;
+            }
+
+
+            /*
+             * Nothing on the native ports. Xbox controller mounted on the
+             * USB host port?
+             */
+
+            if (retropad_xbox_is_connected()) {
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_XBOX
                 );
 
                 return;
@@ -367,6 +393,26 @@ manager_task(void)
             break;
 
 
+        // --------------------------------------------------------------------
+        // XBOX
+        // --------------------------------------------------------------------
+
+        case RETROPAD_CONTROLLER_XBOX:
+
+            // JoypadOS removes the Xbox player itself when the USB host
+            // unmounts the controller.
+            if (!retropad_xbox_is_connected()) {
+
+                router_reset_outputs();
+
+                set_active_controller(
+                    RETROPAD_CONTROLLER_NONE
+                );
+            }
+
+            break;
+
+
         default:
 
             router_reset_outputs();
@@ -475,6 +521,9 @@ retropad_controller_manager_get_name(void)
 
         case RETROPAD_CONTROLLER_PLAYSTATION:
             return "PLAYSTATION";
+
+        case RETROPAD_CONTROLLER_XBOX:
+            return "XBOX";
 
         case RETROPAD_CONTROLLER_NONE:
         default:

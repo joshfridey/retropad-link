@@ -1713,3 +1713,131 @@ void ui_draw_playstation_live_screen(
 
     display_update();
 }
+
+
+// ============================================================================
+// XBOX
+// ============================================================================
+
+void ui_draw_xbox_connected_screen(void)
+{
+    display_clear();
+
+
+    display_text(
+        25,
+        12,
+        "ORIGINAL XBOX"
+    );
+
+
+    display_text(
+        34,
+        36,
+        "CONNECTED"
+    );
+
+
+    display_text(
+        19,
+        48,
+        "HOLD START+BACK"
+    );
+
+
+    display_text(
+        7,
+        56,
+        "3 SEC FOR TEST MODE"
+    );
+
+
+    display_update();
+}
+
+
+// XBOX                       .*....
+// [LT]====          ====[RT]
+//  (l)  [BACK][ST]      Y
+//                     X   B
+//   U       [WH][BL]    A
+// L   R                (r)
+//   D
+//
+// (l) / (r) are the sticks; a double outline means L3 / R3 is pressed.
+// LT / RT show the trigger pull; [LT] / [RT] mark the pressed threshold.
+
+void ui_draw_xbox_live_screen(
+    uint32_t buttons,
+    uint8_t left_x,
+    uint8_t left_y,
+    uint8_t right_x,
+    uint8_t right_y,
+    uint8_t lt,
+    uint8_t rt
+)
+{
+    display_clear();
+
+
+    display_text(
+        0,
+        0,
+        "XBOX"
+    );
+
+
+    ui_draw_page_indicator(
+        TEST_PAGE_LIVE
+    );
+
+
+    // Triggers: analog pull + pressed threshold
+
+    ui_draw_button(0, 11, buttons, JP_BUTTON_L2, "[LT]", " LT ");
+    ui_draw_trigger_bar(26, 12, lt);
+
+    ui_draw_trigger_bar(76, 12, rt);
+    ui_draw_button(102, 11, buttons, JP_BUTTON_R2, "[RT]", " RT ");
+
+
+    // Left stick, top left (L3 as a double outline)
+
+    ui_draw_ps_stick(6, 21, 15, left_x, left_y, (buttons & JP_BUTTON_L3) != 0);
+
+
+    // Back / Start
+
+    ui_draw_button(24, 22, buttons, JP_BUTTON_S1, "[BACK]", " BACK ");
+    ui_draw_button(60, 22, buttons, JP_BUTTON_S2, "[ST]", " ST ");
+
+
+    // D-pad, bottom left
+
+    ui_draw_button(12, 38, buttons, JP_BUTTON_DU, "[U]", " U ");
+    ui_draw_button(0, 47, buttons, JP_BUTTON_DL, "[L]", " L ");
+    ui_draw_button(24, 47, buttons, JP_BUTTON_DR, "[R]", " R ");
+    ui_draw_button(12, 56, buttons, JP_BUTTON_DD, "[D]", " D ");
+
+
+    // White / Black (JoypadOS: White=L1, Black=R1)
+
+    ui_draw_button(46, 38, buttons, JP_BUTTON_L1, "[WH]", " WH ");
+    ui_draw_button(70, 38, buttons, JP_BUTTON_R1, "[BL]", " BL ");
+
+
+    // Face buttons, top right (JoypadOS: A=B1, B=B2, X=B3, Y=B4)
+
+    ui_draw_button(99, 21, buttons, JP_BUTTON_B4, "[Y]", " Y ");
+    ui_draw_button(88, 29, buttons, JP_BUTTON_B3, "[X]", " X ");
+    ui_draw_button(108, 29, buttons, JP_BUTTON_B2, "[B]", " B ");
+    ui_draw_button(99, 37, buttons, JP_BUTTON_B1, "[A]", " A ");
+
+
+    // Right stick, bottom right
+
+    ui_draw_ps_stick(96, 47, 15, right_x, right_y, (buttons & JP_BUTTON_R3) != 0);
+
+
+    display_update();
+}

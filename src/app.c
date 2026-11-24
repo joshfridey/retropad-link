@@ -14,6 +14,7 @@
 #include "controllers/n64.h"
 #include "controllers/gamecube.h"
 #include "controllers/playstation.h"
+#include "controllers/xbox.h"
 #include "controllers/controller_manager.h"
 
 
@@ -136,6 +137,9 @@ static uint32_t rumble_test_button(retropad_controller_type_t active)
                 ? JP_BUTTON_B1      // Cross
                 : 0;
 
+        case RETROPAD_CONTROLLER_XBOX:
+            return JP_BUTTON_B1;    // A
+
         default:
             return 0;
     }
@@ -171,6 +175,9 @@ static diagnostics_layout_t retropad_diagnostics_layout(
             return retropad_playstation_has_sticks()
                 ? DIAGNOSTICS_LAYOUT_PLAYSTATION
                 : DIAGNOSTICS_LAYOUT_PLAYSTATION_DIGITAL;
+
+        case RETROPAD_CONTROLLER_XBOX:
+            return DIAGNOSTICS_LAYOUT_XBOX;
 
         default:
             return DIAGNOSTICS_LAYOUT_SNES;
@@ -267,6 +274,11 @@ static void retropad_draw_connected_screen(void)
     else if (active == RETROPAD_CONTROLLER_PLAYSTATION) {
 
         ui_draw_playstation_connected_screen();
+    }
+
+    else if (active == RETROPAD_CONTROLLER_XBOX) {
+
+        ui_draw_xbox_connected_screen();
     }
 
     else {
@@ -382,6 +394,22 @@ static void retropad_draw_live_screen(uint32_t buttons)
         );
     }
 
+    else if (
+        retropad_controller_manager_get_active() ==
+        RETROPAD_CONTROLLER_XBOX
+    ) {
+
+        ui_draw_xbox_live_screen(
+            buttons,
+            controller_state_get_analog(ANALOG_LX),
+            controller_state_get_analog(ANALOG_LY),
+            controller_state_get_analog(ANALOG_RX),
+            controller_state_get_analog(ANALOG_RY),
+            controller_state_get_analog(ANALOG_L2),
+            controller_state_get_analog(ANALOG_R2)
+        );
+    }
+
     else {
 
         ui_draw_live_screen(
@@ -413,6 +441,9 @@ static const joystick_profile_t* retropad_stick_profile(
                 ? &joystick_profile_psx_left
                 : NULL;
 
+        case RETROPAD_CONTROLLER_XBOX:
+            return &joystick_profile_xbox_left;
+
         default:
             return NULL;
     }
@@ -433,6 +464,9 @@ static const joystick_profile_t* retropad_second_stick_profile(
             return retropad_playstation_has_sticks()
                 ? &joystick_profile_psx_right
                 : NULL;
+
+        case RETROPAD_CONTROLLER_XBOX:
+            return &joystick_profile_xbox_right;
 
         default:
             return NULL;
@@ -475,10 +509,14 @@ static uint8_t retropad_read_sticks(
     }
 
 
-    if (active == RETROPAD_CONTROLLER_PLAYSTATION) {
+    if (
+        active == RETROPAD_CONTROLLER_PLAYSTATION ||
+        active == RETROPAD_CONTROLLER_XBOX
+    ) {
 
         // The PSX host passes the DualShock's raw 0-255 values through
-        // (128 = centre, 0 = up / left).
+        // (128 = centre, 0 = up / left). The XInput driver scales the Xbox
+        // controller's 16-bit axes to the same range.
         x[0] = (int16_t)controller_state_get_analog(ANALOG_LX) - 128;
         y[0] = 128 - (int16_t)controller_state_get_analog(ANALOG_LY);
         x[1] = (int16_t)controller_state_get_analog(ANALOG_RX) - 128;
@@ -904,6 +942,11 @@ void app_task(void)
         RETROPAD_CONTROLLER_PLAYSTATION;
 
 
+    bool xbox_active =
+        active_controller ==
+        RETROPAD_CONTROLLER_XBOX;
+
+
     // SNES / NES are read straight from their readers. N64 / GameCube /
     // PlayStation come from the routed USB event (controller_state).
     uint32_t buttons =
@@ -912,10 +955,30 @@ void app_task(void)
             : nes_active
                 ? retropad_nes_get_buttons()
                 : (
-                    z_modifier || playstation_active
+                    z_modifier || playstation_active || xbox_active
                         ? controller_state_get_buttons()
                         : 0
                 );
+
+
+    // Xbox LT / RT are analog only; count them as pressed past the
+    // threshold so the LIVE page, diagnostics and RAW page see them.
+    if (xbox_active) {
+
+        if (
+            controller_state_get_analog(ANALOG_L2) >
+            RETROPAD_XBOX_TRIGGER_THRESHOLD
+        ) {
+            buttons |= JP_BUTTON_L2;
+        }
+
+        if (
+            controller_state_get_analog(ANALOG_R2) >
+            RETROPAD_XBOX_TRIGGER_THRESHOLD
+        ) {
+            buttons |= JP_BUTTON_R2;
+        }
+    }
 
 
     // Buttons for menu combos. On PlayStation pads without an ANALOG button
@@ -951,7 +1014,7 @@ void app_task(void)
     // ========================================================================
     //
     // On the Rumble page the motors run only while the test button is held
-    // (GameCube A, PlayStation Cross). Leaving the page, leaving test mode or
+    // (GameCube A, PlayStation Cross, Xbox A). Leaving the page, leaving test mode or
     // unplugging stops them.
 
     uint32_t rumble_button =
@@ -977,16 +1040,21 @@ void app_task(void)
                 retropad_gamecube_set_rumble(true);
             }
 
+            else if (active_controller == RETROPAD_CONTROLLER_XBOX) {
+                retropad_xbox_set_rumble(true);
+            }
+
             else {
                 retropad_playstation_set_rumble(true);
             }
         }
 
-        // Stopping: switch both off, in case the controller changed.
+        // Stopping: switch all off, in case the controller changed.
         else {
 
             retropad_gamecube_set_rumble(false);
             retropad_playstation_set_rumble(false);
+            retropad_xbox_set_rumble(false);
         }
 
 
@@ -1268,8 +1336,8 @@ void app_task(void)
         );
 
         // Stick pages only for controllers with sticks (N64, GameCube,
-        // PlayStation); GameCube and PlayStation also get a second stick
-        // page and a Rumble page.
+        // PlayStation, Xbox); GameCube, PlayStation and Xbox also get a
+        // second stick page and a Rumble page.
         ui_set_optional_pages(
             stick_profile != NULL,
             retropad_second_stick_profile(active_controller) != NULL,
@@ -1650,7 +1718,10 @@ void app_task(void)
             bool analog_changed =
                 stick_redraw_pending ||
                 (
-                    active_controller == RETROPAD_CONTROLLER_GAMECUBE &&
+                    (
+                        active_controller == RETROPAD_CONTROLLER_GAMECUBE ||
+                        active_controller == RETROPAD_CONTROLLER_XBOX
+                    ) &&
                     controller_event
                 );
 

@@ -47,6 +47,11 @@ extern const joystick_profile_t joystick_profile_gc_cstick;
 extern const joystick_profile_t joystick_profile_psx_left;
 extern const joystick_profile_t joystick_profile_psx_right;
 
+// Original Xbox: JoypadOS 0-255 values from the 128 centre (the XInput
+// driver scales the controller's 16-bit axes down). Provisional thresholds.
+extern const joystick_profile_t joystick_profile_xbox_left;
+extern const joystick_profile_t joystick_profile_xbox_right;
+
 
 typedef enum {
     JOYSTICK_VERDICT_INCOMPLETE = 0,

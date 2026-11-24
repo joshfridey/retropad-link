@@ -115,6 +115,28 @@ static const button_definition_t playstation_digital_buttons[] = {
 };
 
 
+// Mapping from JoypadOS usb/usbh/xinput/xinput.c (original Xbox). LT / RT
+// have no button bit; app.c sets L2 / R2 from the trigger pull.
+static const button_definition_t xbox_buttons[] = {
+    { JP_BUTTON_DU, "UP" },
+    { JP_BUTTON_DD, "DOWN" },
+    { JP_BUTTON_DL, "LEFT" },
+    { JP_BUTTON_DR, "RIGHT" },
+    { JP_BUTTON_B1, "A" },
+    { JP_BUTTON_B2, "B" },
+    { JP_BUTTON_B3, "X" },
+    { JP_BUTTON_B4, "Y" },
+    { JP_BUTTON_R1, "BLACK" },
+    { JP_BUTTON_L1, "WHITE" },
+    { JP_BUTTON_L2, "LT" },
+    { JP_BUTTON_R2, "RT" },
+    { JP_BUTTON_L3, "L3" },
+    { JP_BUTTON_R3, "R3" },
+    { JP_BUTTON_S1, "BACK" },
+    { JP_BUTTON_S2, "START" },
+};
+
+
 // Mapping from native/host/n64/n64_host.c map_n64_to_jp().
 static const button_definition_t n64_buttons[] = {
     { JP_BUTTON_DU, "UP" },
@@ -196,6 +218,12 @@ static const diagnostics_layout_definition_t layouts[] = {
         .count = sizeof(playstation_digital_buttons) / sizeof(playstation_digital_buttons[0]),
         .reset_hint = "RST:ST+SEL+DOWN",
     },
+
+    [DIAGNOSTICS_LAYOUT_XBOX] = {
+        .buttons = xbox_buttons,
+        .count = sizeof(xbox_buttons) / sizeof(xbox_buttons[0]),
+        .reset_hint = "RST:ST+BACK+DOWN",
+    },
 };
 
 
@@ -207,7 +235,8 @@ _Static_assert(
     sizeof(n64_buttons) / sizeof(n64_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS &&
     sizeof(gamecube_buttons) / sizeof(gamecube_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS &&
     sizeof(nes_buttons) / sizeof(nes_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS &&
-    sizeof(playstation_buttons) / sizeof(playstation_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS,
+    sizeof(playstation_buttons) / sizeof(playstation_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS &&
+    sizeof(xbox_buttons) / sizeof(xbox_buttons[0]) <= MAX_DIAGNOSTIC_BUTTONS,
     "diagnostic layout exceeds MAX_DIAGNOSTIC_BUTTONS"
 );
 

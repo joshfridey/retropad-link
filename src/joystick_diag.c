@@ -73,6 +73,26 @@ const joystick_profile_t joystick_profile_psx_right = {
 };
 
 
+const joystick_profile_t joystick_profile_xbox_left = {
+    .name = "XB L",
+    .full_scale = 135,
+    .reference_reach = 127,
+    .good_reach = 115,
+    .fair_reach = 100,
+    .center_tolerance = 10,
+};
+
+
+const joystick_profile_t joystick_profile_xbox_right = {
+    .name = "XB R",
+    .full_scale = 135,
+    .reference_reach = 127,
+    .good_reach = 115,
+    .fair_reach = 100,
+    .center_tolerance = 10,
+};
+
+
 // ============================================================================
 // REST DETECTION
 // ============================================================================

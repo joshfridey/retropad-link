@@ -320,7 +320,7 @@ src/
   controller_state.c     Latest routed input event
   controllers/
     controller_manager.c Detects which controller is plugged in
-    nes.c snes.c n64.c gamecube.c playstation.c
+    nes.c snes.c n64.c gamecube.c playstation.c xbox.c
                          One adapter per controller (init / task / connected)
     n64/                 N64 driver (modified copy, see Credits)
     gc/                  GameCube driver (modified copy, see Credits)
@@ -337,8 +337,7 @@ src/
 - PlayStation joystick ratings likewise use provisional thresholds.
 - The USB host port (original Xbox controller) is experimental. The
   controller mounts on roughly 1 in 3 plug-ins (replug if it doesn't show
-  up) and works reliably once mounted, but it is not on the OLED or in the
-  controller manager yet. On the breadboard, about two thirds of the packets
+  up) and works reliably once mounted. On the breadboard, about two thirds of the packets
   received from the controller fail their CRC check, and the software USB
   host (PIO-USB) can only retry. A MAX3421E USB host chip on SPI, which
   JoypadOS also supports, is the planned fix.

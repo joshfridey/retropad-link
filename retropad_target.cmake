@@ -106,6 +106,7 @@ target_sources(
     ${RETROPAD_LINK_DIR}/src/controllers/n64.c
     ${RETROPAD_LINK_DIR}/src/controllers/playstation.c
     ${RETROPAD_LINK_DIR}/src/controllers/gamecube.c
+    ${RETROPAD_LINK_DIR}/src/controllers/xbox.c
     ${RETROPAD_LINK_DIR}/src/controllers/controller_manager.c
     ${RETROPAD_LINK_DIR}/src/usb_host_quirks.c
 
@@ -188,13 +189,18 @@ target_compile_options(
     -O3
 )
 
-# USB host device fixes (src/usb_host_quirks.c) wrap TinyUSB functions
-# instead of modifying TinyUSB.
+# USB host device fixes (src/usb_host_quirks.c) and Xbox mount tracking
+# (src/controllers/xbox.c) wrap TinyUSB / JoypadOS functions instead of
+# modifying them.
 target_link_options(
     joypad_retropad_link
     PRIVATE
 
     -Wl,--wrap=tuh_control_xfer
+
+    # Xbox mount tracking (src/controllers/xbox.c)
+    -Wl,--wrap=tuh_xinput_mount_cb
+    -Wl,--wrap=tuh_xinput_umount_cb
 )
 
 
